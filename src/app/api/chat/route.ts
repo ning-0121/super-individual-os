@@ -11,13 +11,13 @@ export async function POST(req: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return new Response('Unauthorized', { status: 401 })
 
-  const { data: memory } = await supabase
-    .from('user_memory')
+  const { data: profile } = await supabase
+    .from('user_profiles')
     .select('*')
-    .eq('user_id', user.id)
+    .eq('id', user.id)
     .single()
 
-  const systemPrompt = buildSystemPrompt(mode, memory)
+  const systemPrompt = buildSystemPrompt(mode, profile)
 
   const stream = await anthropic.messages.stream({
     model: 'claude-sonnet-4-6',

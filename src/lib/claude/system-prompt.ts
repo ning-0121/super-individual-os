@@ -1,14 +1,12 @@
-import { UserMemory } from '@/types'
+import { UserProfile } from '@/types'
 
-export function buildSystemPrompt(mode: string, memory: UserMemory | null): string {
-  const memoryContext = memory ? `
+export function buildSystemPrompt(mode: string, profile: UserProfile | null): string {
+  const context = profile ? `
 ## 用户档案
-- 长期目标：${memory.long_term_goal}
-- 当前阶段：Month ${memory.current_phase_month}，Week ${memory.current_phase_week}
-- 当前重点：${memory.current_focus}
-- 进行中项目：${memory.active_projects.join('、')}
-- 已冻结项目：${memory.frozen_projects.join('、')}
-- 风格偏好：${memory.ai_response_style}
+- 长期目标：${profile.goals}
+- 当前重点：${profile.current_focus}
+- 风险偏好：${profile.risk_preference}
+- 风格：${profile.personality_style}
 ` : ''
 
   const modeInstructions: Record<string, string> = {
@@ -22,7 +20,7 @@ export function buildSystemPrompt(mode: string, memory: UserMemory | null): stri
 
   return `${modeInstructions[mode] || modeInstructions.strategy}
 
-${memoryContext}
+${context}
 
 原则：不废话，直接给判断。用中文回答。`
 }
