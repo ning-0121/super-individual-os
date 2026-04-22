@@ -14,6 +14,9 @@ export interface UserProfile {
   personality_style: string
   risk_preference: string
   current_focus: string
+  onboarding_completed: boolean
+  onboarding_goal: string
+  onboarding_pain: string
   created_at: string
   updated_at: string
 }

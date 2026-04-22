@@ -170,9 +170,24 @@ export default function ChatPage() {
         <div className="flex-1 overflow-auto px-6 py-4 space-y-4">
           {loadingHistory && <p className="text-center text-gray-600 text-sm mt-16">加载中...</p>}
           {!loadingHistory && messages.length === 0 && (
-            <div className="text-center text-gray-600 mt-16 text-sm">
-              {modes.find(m => m.value === mode)?.label} 模式<br />
-              <span className="text-xs">发送消息开始对话</span>
+            <div className="mt-12 max-w-lg mx-auto">
+              <p className="text-center text-gray-600 text-sm mb-6">
+                {modes.find(m => m.value === mode)?.label} 模式 · 选择快捷入口或直接输入
+              </p>
+              <div className="space-y-2">
+                {[
+                  { text: '帮我判断应该先做什么', mode: 'strategy' as const },
+                  { text: '帮我拆解未来 90 天计划', mode: 'execution' as const },
+                  { text: '帮我分析我的项目优先级', mode: 'strategy' as const },
+                ].map(({ text, mode: m }) => (
+                  <button key={text}
+                    onClick={() => { setMode(m); setInput(text) }}
+                    className="w-full text-left px-4 py-3 bg-gray-800 hover:bg-gray-700 border border-gray-700
+                      hover:border-gray-600 rounded-xl text-sm text-gray-300 hover:text-white transition-colors">
+                    {text} →
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {messages.map((msg, i) => (
