@@ -10,7 +10,8 @@ import { getTasks } from '@/services/tasks'
 import { runDecisionEngine, DecisionSignal } from '@/lib/ai/decision-engine'
 import { getMemories } from '@/services/memories'
 import { UserProfile, Project, Task } from '@/types'
-import { Target, Zap, AlertTriangle, Brain, ChevronRight } from 'lucide-react'
+import { Target, Zap, AlertTriangle, Brain, ChevronRight, TrendingUp } from 'lucide-react'
+import { getLearningInsights, type LearningInsights } from '@/lib/ai/learning-loop'
 
 const STATUS_STYLE: Record<string, string> = {
   active:   'status-active',
@@ -27,6 +28,7 @@ export default function DashboardPage() {
   const [projects, setProjects]             = useState<Project[]>([])
   const [tasks, setTasks]                   = useState<Task[]>([])
   const [signal, setSignal]                 = useState<DecisionSignal | null>(null)
+  const [insights, setInsights]             = useState<LearningInsights | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [loading, setLoading]               = useState(true)
 
@@ -36,17 +38,19 @@ export default function DashboardPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      const [{ data: prof }, completed, projs, tsks, mems] = await Promise.all([
+      const [{ data: prof }, completed, projs, tsks, mems, ins] = await Promise.all([
         supabase.from('user_profiles').select('*').eq('id', user.id).single(),
         getOnboardingStatus(),
         getProjects(),
         getTasks(),
         getMemories(),
+        getLearningInsights(supabase, user.id),
       ])
 
       setProfile(prof)
       setProjects(projs)
       setTasks(tsks)
+      setInsights(ins)
       setShowOnboarding(!completed)
 
       const sig = runDecisionEngine({
@@ -106,7 +110,7 @@ export default function DashboardPage() {
             <div className="text-center py-20 text-[var(--text-muted)] text-sm">系统初始化中...</div>
           ) : (
             <>
-              {/* 4-card grid */}
+              {/* 5-card grid */}
               <div className="grid grid-cols-4 gap-4">
 
                 {/* Strategic Focus */}
@@ -183,19 +187,59 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
+                {/* Learning Loop */}
+                <div className="glass rounded-xl p-5 col-span-2">
+                  <div className="flex items-center gap-2 mb-4">
+                    <TrendingUp size={14} className="text-emerald-400" />
+                    <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Learning Loop</span>
+                  </div>
+                  {insights ? (
+                    <div className="grid grid-cols-4 gap-4">
+                      <div>
+                        <p className="text-[10px] text-[var(--text-muted)] mb-1">决策总数</p>
+                        <p className="text-2xl font-mono text-[var(--text-primary)]">{insights.totalDecisions}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-[var(--text-muted)] mb-1">AI 有效率</p>
+                        <div>
+                          <p className="text-2xl font-mono text-emerald-400">{insights.helpfulRate}<span className="text-sm">%</span></p>
+                          <div className="h-1 bg-[var(--bg-base)] rounded-full overflow-hidden mt-1">
+                            <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${insights.helpfulRate}%` }} />
+                          </div>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-[var(--text-muted)] mb-1">执行项</p>
+                        <p className="text-2xl font-mono text-amber-400">{insights.actionsPending}<span className="text-xs text-[var(--text-muted)] ml-1">待</span></p>
+                        <p className="text-[10px] text-emerald-400">{insights.actionsDone} 已完成</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-[var(--text-muted)] mb-1">最常用模式</p>
+                        <p className="text-xs font-mono text-[var(--accent-light)] uppercase">{insights.topMode}</p>
+                        {insights.topRisk && (
+                          <>
+                            <p className="text-[10px] text-[var(--text-muted)] mt-2 mb-1">高频风险</p>
+                            <p className="text-[10px] text-amber-400">{insights.topRisk}</p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-[var(--text-muted)]">暂无学习数据，开始与 AI 对话后自动记录</p>
+                  )}
+                </div>
+
                 {/* AI Co-founder Brief */}
-                <div className="glass rounded-xl p-5 col-span-1">
+                <div className="glass rounded-xl p-5 col-span-2">
                   <div className="flex items-center gap-2 mb-4">
                     <Brain size={14} className="text-violet-400" />
                     <span className="text-xs font-semibold text-violet-400 uppercase tracking-wider">AI Brief</span>
                   </div>
-                  <div className="space-y-2">
-                    {todayTask && (
-                      <div>
-                        <p className="text-[10px] text-[var(--text-muted)] mb-1">今天该做</p>
-                        <p className="text-xs text-[var(--text-primary)]">{todayTask.title}</p>
-                      </div>
-                    )}
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <p className="text-[10px] text-[var(--text-muted)] mb-1">今天该做</p>
+                      <p className="text-xs text-[var(--text-primary)] leading-snug">{todayTask?.title || '暂无紧急任务'}</p>
+                    </div>
                     {highRisks[0] && (
                       <div>
                         <p className="text-[10px] text-[var(--text-muted)] mb-1">需要关注</p>
@@ -205,10 +249,10 @@ export default function DashboardPage() {
                     <div>
                       <p className="text-[10px] text-[var(--text-muted)] mb-1">不应该做</p>
                       <p className="text-xs text-red-400">开始任何新项目或新方向</p>
+                      <a href="/chat" className="flex items-center gap-1 text-[10px] text-[var(--accent-light)] hover:text-white transition-colors mt-2">
+                        和 AI 对话 <ChevronRight size={10} />
+                      </a>
                     </div>
-                    <a href="/chat" className="flex items-center gap-1 text-[10px] text-[var(--accent-light)] hover:text-white transition-colors mt-2">
-                      和 AI 对话 <ChevronRight size={10} />
-                    </a>
                   </div>
                 </div>
               </div>

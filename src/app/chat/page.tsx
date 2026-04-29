@@ -5,6 +5,7 @@ import { AlertTriangle, Brain, ChevronRight, Plus, Trash2 } from 'lucide-react'
 import type { AIMode } from '@/lib/claude'
 import { MODE_LABELS } from '@/lib/claude'
 import type { DecisionSignal } from '@/lib/ai/decision-engine'
+import type { Feedback } from '@/lib/ai/learning-loop'
 import { RiskBadge } from '@/components/ui/risk-badge'
 import { Conversation, Message } from '@/types'
 import { getConversations, createConversation, getMessages, deleteConversation } from '@/services/conversations'
@@ -25,8 +26,12 @@ export default function ChatPage() {
   const [input, setInput]         = useState('')
   const [loading, setLoading]     = useState(false)
   const [loadingHist, setLoadingHist] = useState(false)
-  const [signal, setSignal]       = useState<DecisionSignal | null>(null)
-  const [showCtx, setShowCtx]     = useState(true)
+  const [signal, setSignal]           = useState<DecisionSignal | null>(null)
+  const [showCtx, setShowCtx]         = useState(true)
+  // Map from message array index → decisionLogId for feedback
+  const [decisionLogIds, setDecisionLogIds] = useState<Record<number, string>>({})
+  // Track which messages have received feedback
+  const [feedbackSent, setFeedbackSent]     = useState<Record<number, Feedback>>({})
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
@@ -76,10 +81,12 @@ export default function ChatPage() {
 
     if (!res.ok) { setLoading(false); return }
 
-    // Read decision signal from header
+    // Read decision signal + log id from headers
+    let decisionLogId: string | null = null
     try {
       const sig = res.headers.get('X-Decision-Signal')
       if (sig) setSignal(JSON.parse(sig))
+      decisionLogId = res.headers.get('X-Decision-Log-Id')
     } catch {}
 
     const reader = res.body!.getReader()
@@ -89,7 +96,12 @@ export default function ChatPage() {
       id: (Date.now()+1).toString(), conversation_id: convId,
       role: 'assistant', content: '', created_at: new Date().toISOString(),
     }
-    setMessages(prev => [...prev, aiMsg])
+    // Track the index this assistant message will occupy
+    let aiMsgIndex = -1
+    setMessages(prev => {
+      aiMsgIndex = prev.length
+      return [...prev, aiMsg]
+    })
 
     while (true) {
       const { done, value } = await reader.read()
@@ -101,7 +113,23 @@ export default function ChatPage() {
         return next
       })
     }
+
+    // Store decisionLogId mapped to this message's index
+    if (decisionLogId && aiMsgIndex >= 0) {
+      setDecisionLogIds(prev => ({ ...prev, [aiMsgIndex]: decisionLogId! }))
+    }
     setLoading(false)
+  }
+
+  async function sendFeedback(msgIndex: number, feedback: Feedback) {
+    const decisionLogId = decisionLogIds[msgIndex]
+    if (!decisionLogId) return
+    setFeedbackSent(prev => ({ ...prev, [msgIndex]: feedback }))
+    await fetch('/api/ai/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decisionLogId, feedback }),
+    })
   }
 
   const modeColors: Record<AIMode, string> = {
@@ -222,14 +250,47 @@ export default function ChatPage() {
               ) : (
                 <div className="max-w-3xl w-full">
                   {msg.content ? (
-                    <div className="glass rounded-xl p-5 ai-prose">
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
-                    </div>
+                    <>
+                      <div className="glass rounded-xl p-5 ai-prose">
+                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      </div>
+                      {/* Feedback buttons — only shown when streaming is done and decisionLogId exists */}
+                      {decisionLogIds[i] && (
+                        <div className="flex items-center gap-2 mt-2 pl-1">
+                          <span className="text-[10px] text-[var(--text-muted)]">这个建议：</span>
+                          {(['helpful', 'neutral', 'not_helpful'] as Feedback[]).map(fb => {
+                            const labels: Record<Feedback, string> = { helpful: '有帮助', neutral: '一般', not_helpful: '没帮助' }
+                            const sent = feedbackSent[i]
+                            const isSelected = sent === fb
+                            return (
+                              <button
+                                key={fb}
+                                onClick={() => sendFeedback(i, fb)}
+                                disabled={!!sent}
+                                className="text-[10px] px-2 py-1 rounded-lg transition-all disabled:cursor-default"
+                                style={{
+                                  border: '1px solid var(--border)',
+                                  background: isSelected
+                                    ? fb === 'helpful' ? 'rgba(16,185,129,0.2)' : fb === 'not_helpful' ? 'rgba(239,68,68,0.15)' : 'rgba(99,102,241,0.15)'
+                                    : 'transparent',
+                                  color: isSelected
+                                    ? fb === 'helpful' ? '#10b981' : fb === 'not_helpful' ? '#ef4444' : 'var(--accent-light)'
+                                    : sent ? 'var(--text-muted)' : 'var(--text-secondary)',
+                                  opacity: sent && !isSelected ? 0.4 : 1,
+                                }}
+                              >
+                                {labels[fb]}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <div className="glass rounded-xl p-5 flex items-center gap-2">
                       <div className="flex gap-1">
-                        {[0,1,2].map(i => (
-                          <div key={i} className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-bounce" style={{ animationDelay: `${i*0.15}s` }} />
+                        {[0,1,2].map(j => (
+                          <div key={j} className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-bounce" style={{ animationDelay: `${j*0.15}s` }} />
                         ))}
                       </div>
                       <span className="text-xs text-[var(--text-muted)]">AI 分析中...</span>

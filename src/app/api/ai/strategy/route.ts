@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { buildSystemPrompt, AIMode } from '@/lib/claude'
 import { buildContext } from '@/lib/ai/context-engine'
 import { runDecisionEngine } from '@/lib/ai/decision-engine'
+import { logDecision } from '@/lib/ai/learning-loop'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -64,12 +65,22 @@ export async function POST(req: Request) {
     messages,
   })
 
-  // 6. Log decision signal
+  // 6. Pre-create decision log so we can return its ID in headers
+  const decisionLogId = await logDecision(supabase, {
+    userId: user.id,
+    conversationId: conversationId ?? null,
+    mode: effectiveMode,
+    userInput,
+    aiOutput: '', // will update after stream
+    signal,
+    context,
+  })
+
   console.log('[DecisionEngine]', JSON.stringify({
     mode: effectiveMode,
     stage: signal.currentStage,
     risks: signal.riskFlags.map(r => r.code),
-    contextIds: context.rawContextIds,
+    decisionLogId,
   }))
 
   const encoder = new TextEncoder()
@@ -92,6 +103,31 @@ export async function POST(req: Request) {
         await supabase.from('conversations')
           .update({ updated_at: new Date().toISOString() }).eq('id', conversationId)
       }
+
+      // 8. Update decision log with full AI output + re-extract action items
+      if (decisionLogId && fullContent) {
+        await supabase.from('decision_logs')
+          .update({ ai_output: fullContent })
+          .eq('id', decisionLogId)
+
+        // Extract and insert execution items now that we have full content
+        const { extractActionItems } = await import('@/lib/ai/learning-loop')
+        const actions = extractActionItems(fullContent)
+        if (actions.length > 0) {
+          // Remove placeholder empty inserts (logDecision inserted with empty aiOutput)
+          await supabase.from('execution_logs').delete().eq('decision_log_id', decisionLogId)
+          await supabase.from('execution_logs').insert(
+            actions.map(a => ({
+              user_id: user.id,
+              decision_log_id: decisionLogId,
+              action_item: a.item,
+              timeframe: a.timeframe,
+              status: 'pending',
+            }))
+          )
+        }
+      }
+
       controller.close()
     },
   })
@@ -101,7 +137,8 @@ export async function POST(req: Request) {
       'Content-Type': 'text/plain; charset=utf-8',
       'X-Decision-Signal': JSON.stringify(signal),
       'X-Effective-Mode': effectiveMode,
-      'Access-Control-Expose-Headers': 'X-Decision-Signal, X-Effective-Mode',
+      'X-Decision-Log-Id': decisionLogId ?? '',
+      'Access-Control-Expose-Headers': 'X-Decision-Signal, X-Effective-Mode, X-Decision-Log-Id',
     },
   })
 }
