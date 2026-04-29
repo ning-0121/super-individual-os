@@ -1,26 +1,96 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg-base:       #07080f;
+  --bg-surface:    rgba(13, 17, 30, 0.85);
+  --bg-elevated:   rgba(20, 25, 45, 0.9);
+  --border:        rgba(99, 102, 241, 0.12);
+  --border-strong: rgba(99, 102, 241, 0.28);
+  --glow-indigo:   rgba(99, 102, 241, 0.15);
+  --glow-cyan:     rgba(34, 211, 238, 0.1);
+  --text-primary:  #e8eaf6;
+  --text-secondary:#7c85a8;
+  --text-muted:    #3d4466;
+  --accent:        #6366f1;
+  --accent-light:  #818cf8;
+  --success:       #10b981;
+  --warning:       #f59e0b;
+  --danger:        #ef4444;
+  --cyan:          #22d3ee;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+* { box-sizing: border-box; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
+
+/* ── Grid background ── */
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(99,102,241,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99,102,241,0.025) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* ── Glass cards ── */
+.glass {
+  background: var(--bg-surface);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+}
+
+.glass-strong {
+  background: var(--bg-elevated);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+  border: 1px solid var(--border-strong);
+}
+
+.glass-hover {
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.glass-hover:hover {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 24px var(--glow-indigo);
+}
+
+/* ── Glow effects ── */
+.glow-indigo {
+  box-shadow: 0 0 30px var(--glow-indigo), 0 0 1px var(--border-strong);
+}
+.glow-cyan {
+  box-shadow: 0 0 20px var(--glow-cyan);
+}
+
+/* ── Risk badge colors ── */
+.risk-high   { color: #fca5a5; background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.25); }
+.risk-medium { color: #fcd34d; background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.25); }
+.risk-low    { color: #86efac; background: rgba(16,185,129,0.12); border-color: rgba(16,185,129,0.25); }
+
+/* ── Status colors ── */
+.status-active   { color: #818cf8; background: rgba(99,102,241,0.12); border-color: rgba(99,102,241,0.25); }
+.status-maintain { color: #6ee7b7; background: rgba(16,185,129,0.1);  border-color: rgba(16,185,129,0.2); }
+.status-frozen   { color: #94a3b8; background: rgba(100,116,139,0.1); border-color: rgba(100,116,139,0.2); }
+.status-stopped  { color: #fca5a5; background: rgba(239,68,68,0.1);   border-color: rgba(239,68,68,0.2); }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 2px; }
+
+/* ── Prose overrides for AI responses ── */
+.ai-prose h2 { font-size: 0.9rem; font-weight: 600; color: var(--text-primary); margin: 1.2rem 0 0.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+.ai-prose h3 { font-size: 0.8rem; font-weight: 600; color: var(--accent-light); margin: 0.8rem 0 0.3rem; }
+.ai-prose p  { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.65; margin: 0.3rem 0; }
+.ai-prose ul { font-size: 0.85rem; color: var(--text-secondary); padding-left: 1.2rem; margin: 0.3rem 0; }
+.ai-prose li { margin: 0.2rem 0; }
+.ai-prose strong { color: var(--text-primary); font-weight: 600; }
+.ai-prose table { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin: 0.6rem 0; }
+.ai-prose th { background: rgba(99,102,241,0.1); color: var(--accent-light); padding: 0.4rem 0.75rem; border: 1px solid var(--border); text-align: left; font-weight: 600; }
+.ai-prose td { color: var(--text-secondary); padding: 0.35rem 0.75rem; border: 1px solid var(--border); }
+.ai-prose code { color: var(--cyan); background: rgba(34,211,238,0.08); padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.8rem; }

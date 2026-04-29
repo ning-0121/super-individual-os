@@ -6,6 +6,18 @@ import { getMemories } from '@/services/memories'
 import { resetOnboarding } from '@/services/onboarding'
 import { UserProfile, Memory } from '@/types'
 import { useRouter } from 'next/navigation'
+import { Brain, Target, AlertTriangle, TrendingUp, XCircle, RotateCcw } from 'lucide-react'
+
+const MEMORY_META: Record<string, { icon: string; color: string }> = {
+  goal:        { icon: '◎', color: 'text-[var(--accent-light)]' },
+  personality: { icon: '◉', color: 'text-violet-400' },
+  preference:  { icon: '◈', color: 'text-cyan-400' },
+  project:     { icon: '▣', color: 'text-emerald-400' },
+  decision:    { icon: '⬡', color: 'text-amber-400' },
+  risk:        { icon: '⚠', color: 'text-red-400' },
+  failure:     { icon: '✕', color: 'text-red-500' },
+  success:     { icon: '✓', color: 'text-emerald-400' },
+}
 
 export default function SettingsPage() {
   const [profile, setProfile]   = useState<UserProfile | null>(null)
@@ -22,98 +34,122 @@ export default function SettingsPage() {
         supabase.from('user_profiles').select('*').eq('id', user.id).single(),
         getMemories(),
       ])
-      setProfile(prof)
-      setMemories(mems)
-      setLoading(false)
+      setProfile(prof); setMemories(mems); setLoading(false)
     }
     load()
   }, [])
 
-  async function handleResetOnboarding() {
+  async function handleReset() {
     await resetOnboarding()
     router.push('/dashboard')
   }
 
-  const memoryTypeLabel: Record<string, string> = {
-    goal: '目标', personality: '性格', preference: '偏好',
-    project: '项目', decision: '决策', risk: '风险', failure: '失败', success: '成功',
+  const memGroups = {
+    goal:     memories.filter(m => m.memory_type === 'goal'),
+    decision: memories.filter(m => m.memory_type === 'decision'),
+    success:  memories.filter(m => m.memory_type === 'success'),
+    failure:  memories.filter(m => m.memory_type === 'failure'),
+    risk:     memories.filter(m => m.memory_type === 'risk'),
+    other:    memories.filter(m => !['goal','decision','success','failure','risk'].includes(m.memory_type)),
   }
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen bg-grid" style={{ backgroundColor: 'var(--bg-base)' }}>
       <Sidebar />
-      <main className="flex-1 overflow-auto p-8">
-        <div className="max-w-2xl mx-auto space-y-6">
-          <h1 className="text-2xl font-semibold text-white">设置</h1>
+      <main className="flex-1 overflow-auto">
+        <div className="border-b border-[var(--border)] px-8 py-4 glass">
+          <p className="text-xs font-mono text-violet-400 tracking-widest uppercase mb-0.5">Second Brain</p>
+          <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>知识与记忆系统</h1>
+        </div>
 
+        <div className="p-8 max-w-4xl">
           {loading ? (
-            <p className="text-gray-600 text-sm">加载中...</p>
+            <p className="text-center py-20 text-[var(--text-muted)] text-sm">加载中...</p>
           ) : (
-            <>
+            <div className="space-y-6">
               {/* Profile */}
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
-                <h3 className="text-sm font-medium text-gray-400">用户档案</h3>
+              <div className="glass rounded-xl p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <Target size={14} className="text-[var(--accent-light)]" />
+                  <h3 className="text-sm font-semibold text-[var(--accent-light)] uppercase tracking-wider">User Profile</h3>
+                </div>
                 {profile ? (
-                  <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-4">
                     {[
                       { label: '邮箱', value: profile.email },
+                      { label: '风险偏好', value: profile.risk_preference },
                       { label: '当前目标', value: profile.goals || '未设置' },
                       { label: '当前重点', value: profile.current_focus || '未设置' },
-                      { label: '风险偏好', value: profile.risk_preference },
+                      { label: '选择的目标方向', value: profile.onboarding_goal || '未完成引导' },
+                      { label: '最大痛点', value: profile.onboarding_pain || '未完成引导' },
                     ].map(item => (
-                      <div key={item.label} className="flex justify-between text-sm">
-                        <span className="text-gray-500">{item.label}</span>
-                        <span className="text-gray-200 max-w-xs text-right">{item.value}</span>
-                      </div>
-                    ))}
-                    {profile.onboarding_goal && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">引导时选择的目标</span>
-                        <span className="text-gray-200">{profile.onboarding_goal}</span>
-                      </div>
-                    )}
-                    {profile.onboarding_pain && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">引导时选择的痛点</span>
-                        <span className="text-gray-200">{profile.onboarding_pain}</span>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-gray-600 text-sm">暂无档案</p>
-                )}
-              </div>
-
-              {/* Memories */}
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
-                <h3 className="text-sm font-medium text-gray-400">AI 记忆</h3>
-                {memories.length === 0 ? (
-                  <p className="text-gray-600 text-sm">暂无记忆数据</p>
-                ) : (
-                  <div className="space-y-2">
-                    {memories.map(m => (
-                      <div key={m.id} className="flex items-start gap-3 text-sm">
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-500 shrink-0">
-                          {memoryTypeLabel[m.memory_type] ?? m.memory_type}
-                        </span>
-                        <span className="text-gray-300">{m.content}</span>
-                        <span className="text-gray-700 shrink-0 ml-auto">{'★'.repeat(m.importance)}</span>
+                      <div key={item.label}>
+                        <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>{item.label}</p>
+                        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{item.value}</p>
                       </div>
                     ))}
                   </div>
+                ) : (
+                  <p className="text-[var(--text-muted)] text-sm">暂无档案</p>
                 )}
               </div>
 
-              {/* Reset Onboarding */}
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-                <h3 className="text-sm font-medium text-gray-400 mb-3">引导设置</h3>
-                <p className="text-xs text-gray-600 mb-4">重新完成引导流程，更新你的目标和痛点，系统会重新生成个性化配置。</p>
-                <button onClick={handleResetOnboarding}
-                  className="text-sm px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors">
-                  重新引导 →
+              {/* Memory sections */}
+              <div className="grid grid-cols-2 gap-4">
+                {[
+                  { key: 'goal', label: 'Goals', icon: <Target size={12} />, color: 'text-[var(--accent-light)]' },
+                  { key: 'decision', label: 'Decision History', icon: <Brain size={12} />, color: 'text-amber-400' },
+                  { key: 'success', label: 'Success Patterns', icon: <TrendingUp size={12} />, color: 'text-emerald-400' },
+                  { key: 'failure', label: 'Failure Patterns', icon: <XCircle size={12} />, color: 'text-red-400' },
+                  { key: 'risk', label: 'Risk Flags', icon: <AlertTriangle size={12} />, color: 'text-amber-400' },
+                  { key: 'other', label: 'Other Memories', icon: <Brain size={12} />, color: 'text-violet-400' },
+                ].map(section => {
+                  const items = memGroups[section.key as keyof typeof memGroups]
+                  return (
+                    <div key={section.key} className="glass rounded-xl p-4">
+                      <div className={`flex items-center gap-1.5 mb-3 ${section.color}`}>
+                        {section.icon}
+                        <h4 className="text-xs font-semibold uppercase tracking-wider">{section.label}</h4>
+                        <span className="ml-auto text-[10px]" style={{ color: 'var(--text-muted)' }}>{items.length}</span>
+                      </div>
+                      {items.length === 0 ? (
+                        <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>暂无记录</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {items.map(m => {
+                            const meta = MEMORY_META[m.memory_type]
+                            return (
+                              <div key={m.id} className="flex items-start gap-2 text-xs">
+                                <span className={`shrink-0 ${meta?.color}`}>{meta?.icon}</span>
+                                <p style={{ color: 'var(--text-secondary)' }}>{m.content}</p>
+                                <div className="flex shrink-0">
+                                  {Array.from({ length: m.importance }).map((_, i) => (
+                                    <span key={i} className="text-amber-400" style={{ fontSize: '8px' }}>★</span>
+                                  ))}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Reset */}
+              <div className="glass rounded-xl p-5 flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>重新引导</h4>
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>重新完成引导流程，更新目标和痛点，系统重新生成个性化配置</p>
+                </div>
+                <button onClick={handleReset}
+                  className="flex items-center gap-1.5 text-xs px-4 py-2 rounded-lg transition-colors"
+                  style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+                  <RotateCcw size={12} /> 重新引导
                 </button>
               </div>
-            </>
+            </div>
           )}
         </div>
       </main>
