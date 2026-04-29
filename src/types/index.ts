@@ -3,6 +3,21 @@ export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'paused'
 export type TaskPriority = 'must' | 'important' | 'optional'
 export type ChatMode = 'strategy' | 'execution' | 'review'
 export type MemoryType = 'goal' | 'personality' | 'preference' | 'project' | 'decision' | 'risk' | 'failure' | 'success'
+export type ExecutionUnitType = 'human' | 'ai' | 'agent'
+export type Capability = 'writing' | 'coding' | 'research' | 'strategy' | 'ops' | 'outreach' | 'design' | 'analysis'
+
+export interface ExecutionUnit {
+  id: string
+  user_id: string
+  type: ExecutionUnitType
+  name: string
+  avatar: string
+  description: string
+  capabilities: Capability[]
+  style_prompt: string
+  is_active: boolean
+  created_at: string
+}
 
 export interface UserProfile {
   id: string
@@ -47,6 +62,8 @@ export interface Task {
   priority: TaskPriority
   due_date: string | null
   assignee: string
+  execution_unit_id: string | null
+  execution_unit?: ExecutionUnit   // joined
   created_at: string
   updated_at: string
 }

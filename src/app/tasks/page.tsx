@@ -1,9 +1,11 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Sidebar from '@/components/layout/Sidebar'
-import { Task, TaskStatus } from '@/types'
-import { getTasks, createTask, updateTaskStatus, deleteTask } from '@/services/tasks'
-import { Plus, Zap, Bot, User, Clock } from 'lucide-react'
+import { Task, TaskStatus, ExecutionUnit } from '@/types'
+import { getTasks, createTask, updateTaskStatus, deleteTask, updateTask } from '@/services/tasks'
+import { getExecutionUnits } from '@/services/execution-units'
+import { dispatch } from '@/lib/ai/dispatch-engine'
+import { Plus, Bot, User, Cpu, Clock, Zap } from 'lucide-react'
 
 const COLUMNS: { id: TaskStatus; label: string; color: string }[] = [
   { id: 'todo',        label: 'Focus Queue', color: 'text-[var(--accent-light)]' },
@@ -18,13 +20,25 @@ const PRIORITY_META: Record<string, { border: string; label: string; dot: string
   optional:  { border: 'border-l-slate-600',  label: 'OPTIONAL',  dot: 'bg-slate-500' },
 }
 
-export default function TasksPage() {
-  const [tasks, setTasks]     = useState<Task[]>([])
-  const [loading, setLoading] = useState(true)
-  const [newTitle, setNewTitle] = useState('')
-  const [adding, setAdding]   = useState(false)
+const UNIT_ICON: Record<string, React.FC<{ size?: number; className?: string }>> = {
+  human: User, ai: Bot, agent: Cpu,
+}
+const UNIT_COLOR: Record<string, string> = {
+  human: 'text-cyan-400', ai: 'text-violet-400', agent: 'text-emerald-400',
+}
 
-  useEffect(() => { getTasks().then(setTasks).finally(() => setLoading(false)) }, [])
+export default function TasksPage() {
+  const [tasks, setTasks]       = useState<Task[]>([])
+  const [units, setUnits]       = useState<ExecutionUnit[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [newTitle, setNewTitle] = useState('')
+  const [adding, setAdding]     = useState(false)
+
+  useEffect(() => {
+    Promise.all([getTasks(), getExecutionUnits()])
+      .then(([t, u]) => { setTasks(t); setUnits(u) })
+      .finally(() => setLoading(false))
+  }, [])
 
   async function handleMove(id: string, status: TaskStatus) {
     await updateTaskStatus(id, status)
@@ -34,14 +48,31 @@ export default function TasksPage() {
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
     if (!newTitle.trim()) return
-    const t = await createTask({ title: newTitle.trim(), status: 'todo', priority: 'important' })
-    setTasks(prev => [t, ...prev])
+
+    const newTask: Partial<Task> = { title: newTitle.trim(), status: 'todo', priority: 'important' }
+
+    // Auto-dispatch: recommend execution unit
+    const mockTask = { ...newTask, id: '', user_id: '', project_id: null, description: '',
+      due_date: null, assignee: '', execution_unit_id: null, created_at: '', updated_at: '' } as Task
+    const result = dispatch(mockTask, units)
+    if (result) newTask.execution_unit_id = result.recommended.id
+
+    const t = await createTask(newTask)
+    // Attach unit object for display
+    const unit = units.find(u => u.id === t.execution_unit_id)
+    setTasks(prev => [{ ...t, execution_unit: unit }, ...prev])
     setNewTitle(''); setAdding(false)
   }
 
   async function handleDelete(id: string) {
     await deleteTask(id)
     setTasks(prev => prev.filter(t => t.id !== id))
+  }
+
+  async function handleAssignUnit(taskId: string, unitId: string) {
+    await updateTask(taskId, { execution_unit_id: unitId })
+    const unit = units.find(u => u.id === unitId)
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, execution_unit_id: unitId, execution_unit: unit } : t))
   }
 
   return (
@@ -53,18 +84,23 @@ export default function TasksPage() {
             <p className="text-xs font-mono text-cyan-400 tracking-widest uppercase mb-0.5">Execution OS</p>
             <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>执行看板</h1>
           </div>
-          <button onClick={() => setAdding(true)}
-            className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg"
-            style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--accent-light)', border: '1px solid var(--border-strong)' }}>
-            <Plus size={12} /> 新建任务
-          </button>
+          <div className="flex items-center gap-3">
+            <a href="/team" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors flex items-center gap-1">
+              <Cpu size={11} /> 管理 Agents
+            </a>
+            <button onClick={() => setAdding(true)}
+              className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg"
+              style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--accent-light)', border: '1px solid var(--border-strong)' }}>
+              <Plus size={12} /> 新建任务
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-auto p-6">
           {adding && (
             <form onSubmit={handleAdd} className="glass rounded-xl p-3 flex gap-3 mb-5">
               <input autoFocus value={newTitle} onChange={e => setNewTitle(e.target.value)}
-                placeholder="任务标题..."
+                placeholder="任务标题（AI 会自动推荐执行者）..."
                 className="flex-1 rounded-lg px-3 py-2 text-sm focus:outline-none"
                 style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} />
               <button type="submit" className="px-3 py-2 rounded-lg text-sm text-white" style={{ background: 'var(--accent)' }}>添加</button>
@@ -90,8 +126,11 @@ export default function TasksPage() {
                     )}
                     {tasks.filter(t => t.status === col.id).map(task => (
                       <TaskCard key={task.id} task={task}
+                        units={units}
                         columns={COLUMNS.filter(c => c.id !== col.id)}
-                        onMove={handleMove} onDelete={handleDelete} />
+                        onMove={handleMove}
+                        onDelete={handleDelete}
+                        onAssign={handleAssignUnit} />
                     ))}
                   </div>
                 </div>
@@ -104,30 +143,68 @@ export default function TasksPage() {
   )
 }
 
-function TaskCard({ task, columns, onMove, onDelete }: {
+function TaskCard({ task, units, columns, onMove, onDelete, onAssign }: {
   task: Task
+  units: ExecutionUnit[]
   columns: typeof COLUMNS
   onMove: (id: string, status: TaskStatus) => void
   onDelete: (id: string) => void
+  onAssign: (taskId: string, unitId: string) => void
 }) {
   const pm = PRIORITY_META[task.priority]
+  const unit = task.execution_unit ?? units.find(u => u.id === task.execution_unit_id)
+  const [showAssign, setShowAssign] = useState(false)
+
+  const UnitIcon = unit ? UNIT_ICON[unit.type] : Zap
+  const unitColor = unit ? UNIT_COLOR[unit.type] : 'text-[var(--text-muted)]'
+
   return (
-    <div className={`glass rounded-lg p-3 border-l-4 ${pm.border} group`}>
+    <div className={`glass rounded-lg p-3 border-l-4 ${pm.border} group relative`}>
       <div className="flex items-start gap-2 mb-2">
         <div className={`w-1.5 h-1.5 rounded-full shrink-0 mt-1.5 ${pm.dot}`} />
         <p className="text-xs flex-1 leading-relaxed" style={{ color: 'var(--text-primary)' }}>{task.title}</p>
       </div>
 
       <div className="flex items-center gap-1.5 mb-2">
-        <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-base)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}>
+        <span className="text-[9px] px-1.5 py-0.5 rounded"
+          style={{ background: 'var(--bg-base)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}>
           {pm.label}
         </span>
-        {task.assignee === 'ai' && <Bot size={9} className="text-[var(--accent-light)]" />}
-        {task.assignee === 'self' && <User size={9} style={{ color: 'var(--text-muted)' }} />}
         {task.due_date && <Clock size={9} className="text-amber-400" />}
       </div>
 
-      <div className="flex gap-1 flex-wrap">
+      {/* Execution unit badge */}
+      <div className="flex items-center justify-between">
+        <button
+          onClick={() => setShowAssign(!showAssign)}
+          className={`flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded transition-colors ${unitColor}`}
+          style={{ border: '1px solid var(--border)', background: 'var(--bg-base)' }}>
+          <UnitIcon size={8} />
+          <span>{unit ? unit.name : '未分配'}</span>
+        </button>
+      </div>
+
+      {/* Assign dropdown */}
+      {showAssign && (
+        <div className="absolute left-0 right-0 top-full mt-1 z-10 glass-strong rounded-lg p-1 shadow-xl"
+          style={{ border: '1px solid var(--border-strong)' }}>
+          {units.map(u => {
+            const Icon = UNIT_ICON[u.type]
+            const color = UNIT_COLOR[u.type]
+            return (
+              <button key={u.id}
+                onClick={() => { onAssign(task.id, u.id); setShowAssign(false) }}
+                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-[10px] hover:bg-white/5 transition-colors ${color}`}>
+                <span>{u.avatar}</span>
+                <Icon size={9} />
+                <span>{u.name}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="flex gap-1 flex-wrap mt-2">
         {columns.map(c => (
           <button key={c.id} onClick={() => onMove(task.id, c.id)}
             className="text-[9px] px-1.5 py-0.5 rounded transition-colors"
