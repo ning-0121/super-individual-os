@@ -5,14 +5,35 @@ import ReactMarkdown from 'react-markdown'
 import Sidebar from '@/components/layout/Sidebar'
 import { TaskRun, Task, ExecutionUnit, TaskReview } from '@/types'
 import { AGENT_TYPE_META } from '@/services/agents'
-import { ArrowLeft, CheckCircle2, RotateCcw, Clock, Loader2, AlertTriangle, Lightbulb, Brain, FileText, Target, Wrench, ExternalLink, GitBranch, Activity, ChevronRight, ShieldCheck, XOctagon } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, RotateCcw, Clock, Loader2, AlertTriangle, Lightbulb, Brain, FileText, Target, Wrench, ExternalLink, GitBranch, Activity, ChevronRight, ShieldCheck, XOctagon, Package, Ban } from 'lucide-react'
+
+const ARTIFACT_META: Record<string, { label: string; color: string }> = {
+  code_pr:         { label: 'PR',       color: 'text-emerald-400' },
+  issue:           { label: 'Issue',    color: 'text-cyan-400' },
+  markdown_doc:    { label: '文档',     color: 'text-violet-400' },
+  json_data:       { label: '数据',     color: 'text-amber-400' },
+  design_spec:     { label: '设计稿',   color: 'text-pink-400' },
+  research_report: { label: '调研报告', color: 'text-blue-400' },
+  other:           { label: '其它',     color: 'text-slate-400' },
+}
 
 const RUN_STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
-  pending:    { label: '待运行', color: '#94a3b8', bg: 'rgba(148,163,184,0.1)' },
+  queued:     { label: '排队中', color: '#94a3b8', bg: 'rgba(148,163,184,0.1)' },
+  pending:    { label: '排队中', color: '#94a3b8', bg: 'rgba(148,163,184,0.1)' },
   running:    { label: '执行中', color: '#fbbf24', bg: 'rgba(251,191,36,0.1)' },
+  succeeded:  { label: '已完成', color: '#34d399', bg: 'rgba(52,211,153,0.1)' },
   completed:  { label: '已完成', color: '#34d399', bg: 'rgba(52,211,153,0.1)' },
   failed:     { label: '失败',   color: '#f87171', bg: 'rgba(248,113,113,0.1)' },
   cancelled:  { label: '已取消', color: '#94a3b8', bg: 'rgba(148,163,184,0.1)' },
+}
+
+interface ArtifactDTO {
+  id: string
+  artifact_type: string
+  title: string
+  url: string
+  content: string
+  metadata: Record<string, unknown>
 }
 
 interface RunDetailData {
@@ -25,16 +46,24 @@ interface RunDetailData {
 export default function TaskRunDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
-  const [data, setData] = useState<RunDetailData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [reviewing, setReviewing] = useState(false)
+  const [data, setData]               = useState<RunDetailData | null>(null)
+  const [artifacts, setArtifacts]     = useState<ArtifactDTO[]>([])
+  const [loading, setLoading]         = useState(true)
+  const [reviewing, setReviewing]     = useState(false)
   const [reviewComment, setReviewComment] = useState('')
+  const [retrying, setRetrying]       = useState(false)
+  const [cancelling, setCancelling]   = useState(false)
 
-  useEffect(() => {
-    fetch(`/api/task-runs/${id}`).then(async r => {
-      if (r.ok) setData(await r.json())
-      setLoading(false)
-    })
+  async function refreshAll() {
+    const [runRes, artRes] = await Promise.all([
+      fetch(`/api/task-runs/${id}`),
+      fetch(`/api/artifacts?taskRunId=${id}`),
+    ])
+    if (runRes.ok) setData(await runRes.json())
+    if (artRes.ok) setArtifacts(await artRes.json())
+  }
+
+  useEffect(() => { refreshAll().finally(() => setLoading(false)) // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
   async function submitReview(status: 'approved' | 'revision_required', score?: number) {
@@ -52,20 +81,29 @@ export default function TaskRunDetailPage({ params }: { params: Promise<{ id: st
         revision_instructions: status === 'revision_required' ? reviewComment : '',
       }),
     })
-    // Refresh
-    const refreshed = await fetch(`/api/task-runs/${id}`).then(r => r.json())
-    setData(refreshed)
+    await refreshAll()
     setReviewComment('')
     setReviewing(false)
   }
 
-  async function rerun() {
-    if (!data) return
-    setReviewing(true)
-    const res = await fetch(`/api/tasks/${data.task.id}/run`, { method: 'POST' })
+  async function retry() {
+    setRetrying(true)
+    const res = await fetch(`/api/task-runs/${id}/retry`, { method: 'POST' })
     const result = await res.json()
-    if (result.task_run_id) router.push(`/task-runs/${result.task_run_id}`)
-    setReviewing(false)
+    if (result.task_run_id) {
+      router.push(`/task-runs/${result.task_run_id}`)
+    } else {
+      alert('重试失败：' + (result.error ?? '未知错误'))
+    }
+    setRetrying(false)
+  }
+
+  async function cancel() {
+    if (!confirm('确定取消当前运行？')) return
+    setCancelling(true)
+    await fetch(`/api/task-runs/${id}/cancel`, { method: 'POST' })
+    await refreshAll()
+    setCancelling(false)
   }
 
   if (loading) {
@@ -162,7 +200,7 @@ export default function TaskRunDetailPage({ params }: { params: Promise<{ id: st
             </div>
 
             {/* Actions */}
-            {pendingReview && run.run_status === 'completed' && (
+            {pendingReview && ['completed','succeeded'].includes(run.run_status) && (
               <div className="flex gap-2">
                 <button onClick={() => submitReview('approved', 9)} disabled={reviewing}
                   className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg disabled:opacity-40"
@@ -177,11 +215,26 @@ export default function TaskRunDetailPage({ params }: { params: Promise<{ id: st
               </div>
             )}
             {run.run_status === 'failed' && (
-              <button onClick={rerun} disabled={reviewing}
+              <div className="flex items-center gap-2">
+                {(run.retry_count ?? 0) > 0 && (
+                  <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                    第 {run.retry_count} 次重试 / 上限 {run.max_retries ?? 3}
+                  </span>
+                )}
+                <button onClick={retry} disabled={retrying || (run.retry_count ?? 0) >= (run.max_retries ?? 3)}
+                  className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg disabled:opacity-40"
+                  style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--accent-light)', border: '1px solid var(--border-strong)' }}>
+                  {retrying ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
+                  一键重试
+                </button>
+              </div>
+            )}
+            {(run.run_status === 'running' || run.run_status === 'queued') && (
+              <button onClick={cancel} disabled={cancelling}
                 className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg disabled:opacity-40"
-                style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--accent-light)', border: '1px solid var(--border-strong)' }}>
-                {reviewing ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
-                重新运行
+                style={{ background: 'rgba(248,113,113,0.12)', color: '#f87171', border: '1px solid rgba(248,113,113,0.25)' }}>
+                {cancelling ? <Loader2 size={11} className="animate-spin" /> : <Ban size={11} />}
+                取消运行
               </button>
             )}
           </div>
@@ -190,14 +243,42 @@ export default function TaskRunDetailPage({ params }: { params: Promise<{ id: st
         {/* Main content */}
         <div className="flex-1 overflow-auto p-6 max-w-4xl">
 
-          {/* Run failed - show error */}
+          {/* Run failed - show error + context */}
           {run.run_status === 'failed' && run.error_message && (
             <div className="glass rounded-xl p-5 mb-4" style={{ border: '1px solid rgba(248,113,113,0.3)' }}>
               <div className="flex items-center gap-2 mb-2 text-red-400">
                 <AlertTriangle size={13} />
                 <span className="text-xs font-semibold uppercase tracking-wider">运行失败</span>
+                {(run.retry_count ?? 0) > 0 && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded text-amber-400"
+                    style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.25)' }}>
+                    重试 {run.retry_count}/{run.max_retries ?? 3}
+                  </span>
+                )}
               </div>
-              <p className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{run.error_message}</p>
+              <p className="text-xs font-mono mb-2" style={{ color: 'var(--text-secondary)' }}>{run.error_message}</p>
+              {run.error_context && Object.keys(run.error_context).length > 0 && (
+                <details>
+                  <summary className="text-[10px] cursor-pointer" style={{ color: 'var(--text-muted)' }}>查看错误上下文</summary>
+                  <pre className="text-[9px] font-mono mt-2 whitespace-pre-wrap break-all p-2 rounded"
+                    style={{ background: 'var(--bg-base)', color: 'var(--text-muted)' }}>
+                    {JSON.stringify(run.error_context, null, 2)}
+                  </pre>
+                </details>
+              )}
+            </div>
+          )}
+
+          {/* Run cancelled */}
+          {run.run_status === 'cancelled' && (
+            <div className="glass rounded-xl p-5 mb-4" style={{ border: '1px solid var(--border)' }}>
+              <div className="flex items-center gap-2 text-slate-400">
+                <Ban size={13} />
+                <span className="text-xs font-semibold uppercase tracking-wider">运行已取消</span>
+              </div>
+              {run.error_message && (
+                <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{run.error_message}</p>
+              )}
             </div>
           )}
 
@@ -213,7 +294,7 @@ export default function TaskRunDetailPage({ params }: { params: Promise<{ id: st
           )}
 
           {/* Output payload */}
-          {run.run_status === 'completed' && output && (
+          {['completed','succeeded'].includes(run.run_status) && output && (
             <>
               {/* Summary */}
               {output.summary && (
@@ -484,6 +565,59 @@ export default function TaskRunDetailPage({ params }: { params: Promise<{ id: st
                 </div>
               )}
 
+              {/* Artifacts (V1.4) */}
+              {artifacts.length > 0 && (
+                <div className="glass rounded-xl p-5 mb-4">
+                  <div className="flex items-center gap-2 mb-3 text-violet-400">
+                    <Package size={13} />
+                    <span className="text-xs font-semibold uppercase tracking-wider">产出物</span>
+                    <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>({artifacts.length})</span>
+                  </div>
+                  <div className="space-y-2">
+                    {artifacts.map(a => {
+                      const meta = ARTIFACT_META[a.artifact_type] ?? ARTIFACT_META.other
+                      return (
+                        <div key={a.id} className="rounded-lg p-3"
+                          style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded ${meta.color}`}
+                                  style={{ background: 'transparent', border: '1px solid var(--border)' }}>
+                                  {meta.label}
+                                </span>
+                                <p className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>{a.title}</p>
+                              </div>
+                              {(() => {
+                                const files = a.metadata?.files_written
+                                if (!Array.isArray(files) || files.length === 0) return null
+                                return (
+                                  <div className="flex flex-wrap gap-1 mt-1">
+                                    {(files as unknown[]).map((f, fi) => (
+                                      <code key={fi} className="text-[9px] px-1.5 py-0.5 rounded font-mono"
+                                        style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+                                        {String(f)}
+                                      </code>
+                                    ))}
+                                  </div>
+                                )
+                              })()}
+                            </div>
+                            {a.url && (
+                              <a href={a.url} target="_blank" rel="noreferrer"
+                                className="flex items-center gap-1 text-[10px] px-2 py-1 rounded shrink-0"
+                                style={{ background: 'rgba(99,102,241,0.12)', color: 'var(--accent-light)', border: '1px solid var(--border-strong)' }}>
+                                打开 <ExternalLink size={9} />
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* QA Evaluation (V1.3) */}
               {output.evaluation && (() => {
                 const ev = output.evaluation
@@ -608,7 +742,7 @@ export default function TaskRunDetailPage({ params }: { params: Promise<{ id: st
           )}
 
           {/* Review section */}
-          {pendingReview && run.run_status === 'completed' && (
+          {pendingReview && ['completed','succeeded'].includes(run.run_status) && (
             <div className="glass-strong rounded-xl p-5 mb-4" style={{ border: '1px solid var(--border-strong)' }}>
               <div className="flex items-center gap-2 mb-3">
                 <Clock size={13} className="text-amber-400" />

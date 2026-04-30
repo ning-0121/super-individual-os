@@ -22,8 +22,26 @@ export type TaskType =
   | 'feature' | 'research' | 'design' | 'engineering' | 'content'
   | 'review' | 'deployment' | 'analysis' | 'planning' | 'general'
 
-export type RunStatus    = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+// V1.4: 'queued' replaces 'pending', 'succeeded' replaces 'completed'
+// Legacy values kept valid for backward compat
+export type RunStatus    = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'pending' | 'completed'
 export type ReviewStatus = 'pending' | 'approved' | 'revision_required' | 'rejected'
+
+export type ArtifactType = 'code_pr' | 'markdown_doc' | 'json_data' | 'design_spec' | 'research_report' | 'issue' | 'other'
+
+export interface Artifact {
+  id: string
+  user_id: string
+  task_run_id: string | null
+  task_id: string | null
+  project_id: string | null
+  artifact_type: ArtifactType
+  title: string
+  url: string
+  content: string
+  metadata: Record<string, unknown>
+  created_at: string
+}
 
 // ── Core entities ──────────────────────────────────────────────────
 export interface ExecutionUnit {
@@ -140,6 +158,11 @@ export interface TaskRun {
   error_message: string
   started_at: string
   finished_at: string | null
+  // V1.4
+  retry_count: number
+  max_retries: number
+  parent_run_id: string | null
+  error_context: Record<string, unknown>
 }
 
 export interface TaskReview {

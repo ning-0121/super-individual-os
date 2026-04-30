@@ -44,10 +44,9 @@ export async function POST(req: Request) {
     return Response.json({ error: 'Failed to parse execution plan', raw: rawText }, { status: 422 })
   }
 
-  // Persist tasks to DB
-  const createdTasks = []
+  // Persist tasks to DB — first pass with placeholder depends_on (still order numbers)
+  const createdTasks: Array<{ id: string; order: number; depends_on_orders: number[] }> = []
   for (const t of plan.tasks) {
-    // Find matching agent
     const matchingAgent = agents.find(a => a.agent_type === t.requested_agent_type && a.type !== 'human')
 
     const { data: task } = await supabase.from('tasks').insert({
@@ -64,10 +63,26 @@ export async function POST(req: Request) {
       assigned_unit_id: matchingAgent?.id ?? null,
       expected_output: t.expected_output,
       acceptance_criteria: t.acceptance_criteria,
-      context_payload: { order: t.order, depends_on: t.depends_on },
+      context_payload: { order: t.order, depends_on: t.depends_on },  // depends_on is still order numbers here
     }).select().single()
 
-    if (task) createdTasks.push(task)
+    if (task) createdTasks.push({ id: task.id, order: t.order, depends_on_orders: t.depends_on })
+  }
+
+  // Second pass: rewrite depends_on from order numbers → task UUIDs (V1.4 dependency gate)
+  const orderToId = new Map<number, string>()
+  for (const ct of createdTasks) orderToId.set(ct.order, ct.id)
+
+  for (const ct of createdTasks) {
+    if (ct.depends_on_orders.length === 0) continue
+    const depIds = ct.depends_on_orders
+      .map(o => orderToId.get(o))
+      .filter((x): x is string => typeof x === 'string')
+    if (depIds.length > 0) {
+      await supabase.from('tasks')
+        .update({ context_payload: { order: ct.order, depends_on: depIds } })
+        .eq('id', ct.id)
+    }
   }
 
   // Mark project as having a plan

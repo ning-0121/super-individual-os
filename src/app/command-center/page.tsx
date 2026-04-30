@@ -5,7 +5,7 @@ import { Project, Task, ExecutionUnit, WorkflowStatus, AgentType } from '@/types
 import { getProjects } from '@/services/projects'
 import { AGENT_TYPE_META } from '@/services/agents'
 import { useRouter } from 'next/navigation'
-import { Plus, Zap, ChevronDown, ChevronRight, AlertTriangle, CheckCircle2, Clock, Loader2, RefreshCw, Target, Users, Play, ExternalLink } from 'lucide-react'
+import { Plus, Zap, ChevronDown, ChevronRight, AlertTriangle, CheckCircle2, Clock, Loader2, RefreshCw, Target, Users, Play, ExternalLink, FileText, Lock } from 'lucide-react'
 
 const WORKFLOW_META: Record<WorkflowStatus, { label: string; color: string; dot: string }> = {
   draft:             { label: '草稿',   color: 'text-slate-400',   dot: 'bg-slate-500' },
@@ -82,18 +82,22 @@ export default function CommandCenterPage() {
 
   async function runAgent(taskId: string, projectId: string) {
     setUpdatingTask(taskId)
-    setTasks(prev => ({
-      ...prev,
-      [projectId]: (prev[projectId] ?? []).map(t => t.id === taskId ? { ...t, workflow_status: 'running' as WorkflowStatus } : t),
-    }))
     try {
       const res = await fetch(`/api/tasks/${taskId}/run`, { method: 'POST' })
       const data = await res.json()
       if (data.task_run_id) {
         router.push(`/task-runs/${data.task_run_id}`)
       } else if (data.error) {
-        alert('运行失败：' + data.error)
-        // Refresh task state
+        // Show structured error
+        if (data.blocked_by && Array.isArray(data.blocked_by)) {
+          alert(`前置任务未完成，无法运行：\n\n${(data.blocked_by as Array<{title:string; status:string}>).map(b => `· ${b.title} (${b.status})`).join('\n')}`)
+        } else if (data.existing_run_id) {
+          if (confirm('该任务已有正在运行的执行，是否前往查看？')) {
+            router.push(`/task-runs/${data.existing_run_id}`)
+          }
+        } else {
+          alert('运行失败：' + data.error)
+        }
         setTasks(prev => {
           const next = { ...prev }
           delete next[projectId]
@@ -192,6 +196,13 @@ export default function CommandCenterPage() {
                   )}
                 </div>
 
+                {/* Generate report */}
+                <a href={`/reports/${proj.id}`}
+                  className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg transition-colors mr-2"
+                  style={{ background: 'rgba(167,139,250,0.12)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.25)' }}>
+                  <FileText size={11} /> 项目报告
+                </a>
+
                 {/* Generate plan */}
                 {showGoalInput === proj.id ? (
                   <div className="flex items-center gap-2 flex-1 ml-6">
@@ -271,6 +282,7 @@ export default function CommandCenterPage() {
                     <TaskTreeNode
                       key={task.id}
                       task={task}
+                      allTasks={projTasks}
                       subtasks={projTasks.filter(t => t.parent_task_id === task.id)}
                       agents={agents}
                       expanded={expandedTasks}
@@ -294,8 +306,9 @@ export default function CommandCenterPage() {
   )
 }
 
-function TaskTreeNode({ task, subtasks, agents, expanded, onToggle, onUpdateStatus, onRunAgent, updatingId, depth = 0 }: {
+function TaskTreeNode({ task, allTasks, subtasks, agents, expanded, onToggle, onUpdateStatus, onRunAgent, updatingId, depth = 0 }: {
   task: Task
+  allTasks: Task[]
   subtasks: Task[]
   agents: ExecutionUnit[]
   expanded: Set<string>
@@ -311,6 +324,16 @@ function TaskTreeNode({ task, subtasks, agents, expanded, onToggle, onUpdateStat
   const agent = agents.find(a => a.id === task.assigned_unit_id || a.id === task.execution_unit_id)
   const agentMeta = agent ? (AGENT_TYPE_META[agent.agent_type ?? 'general'] ?? AGENT_TYPE_META.general) : null
   const hasSubtasks = subtasks.length > 0
+
+  // V1.4: dependency gate computation
+  const cp = (task.context_payload ?? {}) as { depends_on?: unknown }
+  const depIds = Array.isArray(cp.depends_on)
+    ? (cp.depends_on as unknown[]).filter(x => typeof x === 'string') as string[]
+    : []
+  const blockingDeps = depIds.length > 0
+    ? allTasks.filter(t => depIds.includes(t.id) && !['completed', 'approved'].includes(t.workflow_status ?? ''))
+    : []
+  const isDependencyBlocked = blockingDeps.length > 0
 
   const NEXT_STATUSES: Record<WorkflowStatus, WorkflowStatus[]> = {
     draft:             ['planned', 'archived'],
@@ -381,17 +404,25 @@ function TaskTreeNode({ task, subtasks, agents, expanded, onToggle, onUpdateStat
 
               {/* Run Agent button — for AI/agent units in actionable states */}
               {agent && agent.type !== 'human' && ['planned','assigned','revision_required','draft'].includes(task.workflow_status ?? 'draft') && (
-                <button onClick={() => onRunAgent(task.id)}
-                  disabled={updatingId === task.id}
-                  className="ml-auto flex items-center gap-1 text-[9px] px-2 py-0.5 rounded transition-all disabled:opacity-40"
-                  style={{
-                    background: 'rgba(99,102,241,0.15)',
-                    border: '1px solid var(--border-strong)',
-                    color: 'var(--accent-light)',
-                  }}>
-                  {updatingId === task.id ? <Loader2 size={9} className="animate-spin" /> : <Play size={9} />}
-                  运行 Agent
-                </button>
+                isDependencyBlocked ? (
+                  <span className="ml-auto flex items-center gap-1 text-[9px] px-2 py-0.5 rounded"
+                    title={`等待: ${blockingDeps.map(d => d.title).join(', ')}`}
+                    style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', color: '#f87171' }}>
+                    <Lock size={9} /> 等待 {blockingDeps.length} 个前置
+                  </span>
+                ) : (
+                  <button onClick={() => onRunAgent(task.id)}
+                    disabled={updatingId === task.id}
+                    className="ml-auto flex items-center gap-1 text-[9px] px-2 py-0.5 rounded transition-all disabled:opacity-40"
+                    style={{
+                      background: 'rgba(99,102,241,0.15)',
+                      border: '1px solid var(--border-strong)',
+                      color: 'var(--accent-light)',
+                    }}>
+                    {updatingId === task.id ? <Loader2 size={9} className="animate-spin" /> : <Play size={9} />}
+                    运行 Agent
+                  </button>
+                )
               )}
 
               {/* View result for submitted/under_review/completed */}
@@ -426,6 +457,18 @@ function TaskTreeNode({ task, subtasks, agents, expanded, onToggle, onUpdateStat
               )}
             </div>
 
+            {/* Blocked-by deps explanation */}
+            {isDependencyBlocked && (
+              <div className="mt-2 ml-3.5 text-[9px] px-2 py-1.5 rounded-lg flex items-start gap-1.5"
+                style={{ background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.2)' }}>
+                <Lock size={9} className="text-red-400 mt-0.5" />
+                <div className="flex-1" style={{ color: 'var(--text-muted)' }}>
+                  <span className="text-red-400 font-semibold">阻塞中：</span>
+                  {blockingDeps.map(d => `「${d.title}」(${WORKFLOW_META[d.workflow_status ?? 'draft']?.label ?? d.workflow_status})`).join('、')}
+                </div>
+              </div>
+            )}
+
             {/* Acceptance criteria */}
             {task.acceptance_criteria && (
               <div className="mt-2 ml-3.5 text-[9px] px-2 py-1.5 rounded-lg" style={{ background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.15)' }}>
@@ -441,7 +484,7 @@ function TaskTreeNode({ task, subtasks, agents, expanded, onToggle, onUpdateStat
       {isExpanded && subtasks.map(sub => (
         <div key={sub.id} className="mt-1.5 ml-4 pl-3 border-l border-[var(--border)]">
           <TaskTreeNode
-            task={sub} subtasks={[]} agents={agents}
+            task={sub} allTasks={allTasks} subtasks={[]} agents={agents}
             expanded={expanded} onToggle={onToggle}
             onUpdateStatus={onUpdateStatus} onRunAgent={onRunAgent} updatingId={updatingId}
             depth={depth + 1}
