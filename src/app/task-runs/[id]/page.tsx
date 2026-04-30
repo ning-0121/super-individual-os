@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown'
 import Sidebar from '@/components/layout/Sidebar'
 import { TaskRun, Task, ExecutionUnit, TaskReview } from '@/types'
 import { AGENT_TYPE_META } from '@/services/agents'
-import { ArrowLeft, CheckCircle2, RotateCcw, Clock, Loader2, AlertTriangle, Lightbulb, Brain, FileText, Target } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, RotateCcw, Clock, Loader2, AlertTriangle, Lightbulb, Brain, FileText, Target, Wrench, ExternalLink, GitBranch } from 'lucide-react'
 
 const RUN_STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   pending:    { label: '待运行', color: '#94a3b8', bg: 'rgba(148,163,184,0.1)' },
@@ -221,6 +221,130 @@ export default function TaskRunDetailPage({ params }: { params: Promise<{ id: st
                   </div>
                   <div className="ai-prose">
                     <ReactMarkdown>{output.output}</ReactMarkdown>
+                  </div>
+                </div>
+              )}
+
+              {/* Tool Calls */}
+              {Array.isArray(run.tool_calls) && run.tool_calls.length > 0 && (
+                <div className="glass-strong rounded-xl p-5 mb-4" style={{ border: '1px solid var(--border-strong)' }}>
+                  <div className="flex items-center gap-2 mb-3 text-cyan-400">
+                    <Wrench size={13} />
+                    <span className="text-xs font-semibold uppercase tracking-wider">工具执行结果</span>
+                    <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>({run.tool_calls.length} 次调用)</span>
+                  </div>
+                  <div className="space-y-2">
+                    {(run.tool_calls as Array<Record<string, unknown>>).map((tc, i) => {
+                      const status = tc.status as string
+                      const isSuccess = status === 'success'
+                      const result = (tc.result ?? {}) as {
+                        pr_url?: string; pr_number?: number; pr_state?: string;
+                        issue_url?: string; issue_number?: number;
+                        files_written?: string[]; repo?: string; note?: string;
+                        [k: string]: unknown
+                      }
+                      const tool = tc.tool as string
+                      const action = tc.action as string
+                      const error = tc.error as string | undefined
+                      const duration = tc.duration_ms as number | undefined
+
+                      return (
+                        <div key={i} className="rounded-lg p-3"
+                          style={{
+                            background: isSuccess ? 'rgba(52,211,153,0.05)' : 'rgba(248,113,113,0.05)',
+                            border: `1px solid ${isSuccess ? 'rgba(52,211,153,0.2)' : 'rgba(248,113,113,0.2)'}`,
+                          }}>
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              {tool === 'github' && <GitBranch size={12} className={isSuccess ? 'text-emerald-400' : 'text-red-400'} />}
+                              {tool !== 'github' && <Wrench size={12} className={isSuccess ? 'text-emerald-400' : 'text-red-400'} />}
+                              <code className="text-xs font-mono" style={{ color: 'var(--text-primary)' }}>
+                                {tool}.{action}
+                              </code>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {duration !== undefined && (
+                                <span className="text-[9px]" style={{ color: 'var(--text-muted)' }}>{duration}ms</span>
+                              )}
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded ${isSuccess ? 'text-emerald-400' : 'text-red-400'}`}
+                                style={{ background: isSuccess ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.12)' }}>
+                                {isSuccess ? '成功' : '失败'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Success result */}
+                          {isSuccess && (
+                            <div className="space-y-1.5 ml-4">
+                              {/* GitHub PR special handling */}
+                              {result.pr_url && (
+                                <a href={result.pr_url} target="_blank" rel="noreferrer"
+                                  className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded transition-all"
+                                  style={{
+                                    background: 'rgba(52,211,153,0.15)',
+                                    border: '1px solid rgba(52,211,153,0.3)',
+                                    color: '#34d399',
+                                  }}>
+                                  <GitBranch size={11} />
+                                  <span>PR #{result.pr_number ?? '?'}</span>
+                                  <ExternalLink size={10} />
+                                  <span className="font-mono text-[10px]">{result.pr_url}</span>
+                                </a>
+                              )}
+                              {/* GitHub Issue */}
+                              {result.issue_url && (
+                                <a href={result.issue_url} target="_blank" rel="noreferrer"
+                                  className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded"
+                                  style={{
+                                    background: 'rgba(99,102,241,0.15)',
+                                    border: '1px solid var(--border-strong)',
+                                    color: 'var(--accent-light)',
+                                  }}>
+                                  <GitBranch size={11} /> <span>Issue #{result.issue_number ?? '?'}</span> <ExternalLink size={10} />
+                                </a>
+                              )}
+                              {/* Files written */}
+                              {Array.isArray(result.files_written) && result.files_written.length > 0 && (
+                                <div>
+                                  <p className="text-[10px] mb-1" style={{ color: 'var(--text-muted)' }}>已写入文件：</p>
+                                  <div className="flex flex-wrap gap-1">
+                                    {result.files_written.map(f => (
+                                      <code key={f} className="text-[9px] px-1.5 py-0.5 rounded font-mono"
+                                        style={{ background: 'var(--bg-base)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+                                        {f}
+                                      </code>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              {/* Generic JSON */}
+                              {!result.pr_url && !result.issue_url && (
+                                <pre className="text-[10px] font-mono whitespace-pre-wrap break-all"
+                                  style={{ color: 'var(--text-muted)' }}>
+                                  {JSON.stringify(result, null, 2)}
+                                </pre>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Error message */}
+                          {!isSuccess && error && (
+                            <p className="text-[10px] font-mono ml-4" style={{ color: '#f87171' }}>
+                              {error}
+                            </p>
+                          )}
+
+                          {/* Show params for transparency (collapsed) */}
+                          <details className="mt-2 ml-4">
+                            <summary className="text-[9px] cursor-pointer" style={{ color: 'var(--text-muted)' }}>查看请求参数</summary>
+                            <pre className="text-[9px] font-mono mt-1 whitespace-pre-wrap break-all p-2 rounded"
+                              style={{ background: 'var(--bg-base)', color: 'var(--text-muted)' }}>
+                              {JSON.stringify(tc.params, null, 2)}
+                            </pre>
+                          </details>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )}

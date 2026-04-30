@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { runAgentTask, type ProjectContext } from '@/lib/ai/gateway'
+import { getUserConnectedTools } from '@/lib/tools/router'
 import type { ExecutionUnit, Task } from '@/types'
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -79,15 +80,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     .update({ workflow_status: 'running', status: 'in_progress' })
     .eq('id', taskId)
 
-  // 6. Execute agent via gateway
+  // 6. Compute available tools = agent.tools_allowed ∩ user-connected
+  const userConnected = await getUserConnectedTools(user.id, supabase)
+  const agentAllowed  = ((agent as ExecutionUnit).tools_allowed ?? []) as string[]
+  const availableTools = agentAllowed.filter(t => userConnected.includes(t))
+
+  // 7. Execute agent via gateway
   try {
     const result = await runAgentTask({
       agent: agent as ExecutionUnit,
       task: task as Task,
       projectContext,
+      userId: user.id,
+      supabase,
+      availableTools,
     })
 
-    // 7. Persist result
+    // 8. Persist result + tool_calls
     await supabase.from('task_runs').update({
       run_status: 'completed',
       output_payload: {
@@ -97,6 +106,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         next_steps: result.next_steps,
       },
       reasoning_summary: result.reasoning_summary,
+      tool_calls: result.tool_calls,
       finished_at: new Date().toISOString(),
     }).eq('id', taskRun.id)
 
@@ -124,6 +134,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         reasoning_summary: result.reasoning_summary,
         risks: result.risks,
         next_steps: result.next_steps,
+        tool_calls: result.tool_calls,
       },
     })
   } catch (e) {
