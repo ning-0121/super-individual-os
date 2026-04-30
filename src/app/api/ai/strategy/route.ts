@@ -8,7 +8,12 @@ import { logDecision, extractActionItems, getLearningInsights } from '@/lib/ai/l
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 export async function POST(req: Request) {
-  const { mode, userInput, conversationId, messageHistory = [] } = await req.json()
+  // V1.8: projectId is optional — when present, persists project_id on
+  // conversations / decision_logs so this exchange is project-scoped.
+  const { mode, userInput, conversationId, messageHistory = [], projectId } = await req.json() as {
+    mode: string; userInput: string; conversationId?: string | null;
+    messageHistory?: Array<{ role: string; content: string }>; projectId?: string | null;
+  }
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
@@ -79,9 +84,10 @@ export async function POST(req: Request) {
   const decisionLogId = await logDecision(supabase, {
     userId: user.id,
     conversationId: conversationId ?? null,
+    projectId: projectId ?? null,
     mode: effectiveMode,
     userInput,
-    aiOutput: '', // will update after stream
+    aiOutput: '',
     signal,
     context,
   })

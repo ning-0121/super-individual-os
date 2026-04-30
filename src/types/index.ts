@@ -205,6 +205,7 @@ export interface ToolIntegration {
 export interface Conversation {
   id: string
   user_id: string
+  project_id: string | null      // V1.8: project-scoped conversations
   mode: ChatMode
   title: string
   created_at: string
@@ -222,8 +223,47 @@ export interface Message {
 export interface Memory {
   id: string
   user_id: string
+  project_id: string | null     // V1.8: project-scoped (NULL = user-level)
   memory_type: MemoryType
   content: string
   importance: number
   created_at: string
+}
+
+// ── V1.8 — Platform refactor types ──────────────────────────────────
+export interface ProjectAgent {
+  id: string
+  user_id: string
+  project_id: string
+  execution_unit_id: string
+  is_enabled: boolean
+  system_prompt_override: string
+  tools_allowed_override: string[] | null
+  settings: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface ProjectToolGrant {
+  id: string
+  user_id: string
+  project_id: string
+  tool_integration_id: string
+  is_enabled: boolean
+  default_config_override: Record<string, unknown>
+  created_at: string
+}
+
+export interface AvatarStateRow {
+  id: string
+  user_id: string
+  project_id: string
+  mood: string
+  expression: string
+  action: string
+  outfit: string
+  growth_stage: string
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
 }

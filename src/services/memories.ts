@@ -11,10 +11,14 @@ export async function getMemories(type?: MemoryType): Promise<Memory[]> {
   return data ?? []
 }
 
-export async function saveMemory(input: Omit<Memory, 'id' | 'user_id' | 'created_at'>): Promise<Memory> {
+export async function saveMemory(
+  input: Omit<Memory, 'id' | 'user_id' | 'created_at' | 'project_id'> & { project_id?: string | null }
+): Promise<Memory> {
+  // V1.8: project_id defaults to null (user-level) when omitted
+  const payload = { project_id: null, ...input }
   const { data, error } = await db()
     .from('memories')
-    .insert(input)
+    .insert(payload)
     .select()
     .single()
   if (error) throw error

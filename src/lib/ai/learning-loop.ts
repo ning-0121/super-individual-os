@@ -61,6 +61,7 @@ export async function logDecision(
   params: {
     userId: string
     conversationId: string | null
+    projectId?: string | null         // V1.8 — project scope
     mode: string
     userInput: string
     aiOutput: string
@@ -68,12 +69,12 @@ export async function logDecision(
     context: AIContext
   }
 ): Promise<string | null> {
-  // Insert decision log
   const { data: log, error } = await supabase
     .from('decision_logs')
     .insert({
       user_id:        params.userId,
       conversation_id: params.conversationId,
+      project_id:     params.projectId ?? null,
       mode:           params.mode,
       detected_mode:  params.signal.detectedMode,
       user_input:     params.userInput,

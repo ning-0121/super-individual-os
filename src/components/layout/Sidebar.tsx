@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
   LayoutDashboard, MessageSquare, FolderOpen, CheckSquare,
-  Brain, Bot, Layers, ClipboardCheck, Wrench, LogOut, ShieldCheck, Eye, Sparkles,
+  Brain, Bot, Layers, ClipboardCheck, Wrench, LogOut, ShieldCheck, Eye,
 } from 'lucide-react'
 
 const nav = [
@@ -13,17 +13,16 @@ const nav = [
     group: 'Intelligence',
     items: [
       { href: '/dashboard',       label: 'Dashboard',     icon: LayoutDashboard },
-      { href: '/chat',            label: 'AI Co-founder', icon: MessageSquare },
-      { href: '/agents',          label: 'AI Workforce',  icon: Bot },
-      { href: '/avatar-lab',      label: 'Auralie',       icon: Sparkles },
+      { href: '/projects',        label: 'Projects',      icon: FolderOpen },
     ],
   },
   {
-    group: 'Execution',
+    group: 'Global',
     items: [
+      { href: '/chat',            label: 'AI Co-founder', icon: MessageSquare },
+      { href: '/agents',          label: 'AI Workforce',  icon: Bot },
       { href: '/command-center',  label: 'Command Center',  icon: Layers },
-      { href: '/projects',        label: 'Portfolio',       icon: FolderOpen },
-      { href: '/tasks',           label: 'Task Board',      icon: CheckSquare },
+      { href: '/tasks',           label: 'All Tasks',       icon: CheckSquare },
       { href: '/reviews',         label: 'Reviews',         icon: ClipboardCheck },
     ],
   },

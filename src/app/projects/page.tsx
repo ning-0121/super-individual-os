@@ -153,8 +153,12 @@ function ProjectCard({
   return (
     <div className="glass glass-hover rounded-xl p-5 flex flex-col gap-3">
       <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{p.name}</p>
+        <div className="flex-1">
+          <a href={`/projects/${p.id}`}
+            className="text-sm font-semibold hover:text-[var(--accent-light)] transition-colors"
+            style={{ color: 'var(--text-primary)' }}>
+            {p.name} →
+          </a>
           {!compact && p.description && <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{p.description}</p>}
         </div>
         <div className="flex items-center gap-2">
