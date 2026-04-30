@@ -1,57 +1,23 @@
-import Anthropic from '@anthropic-ai/sdk'
-import { createClient } from '@/lib/supabase/server'
-import { buildSystemPrompt } from '@/lib/claude/system-prompt'
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+/**
+ * Legacy chat route — proxies to /api/ai/strategy so all engines run.
+ * Kept for backward compatibility. Prefer calling /api/ai/strategy directly.
+ */
+import { POST as strategyPOST } from '@/app/api/ai/strategy/route'
 
 export async function POST(req: Request) {
-  const { messages, mode, conversationId } = await req.json()
-  const supabase = await createClient()
+  const body = await req.json()
+  const { messages = [], mode = 'ceo', conversationId } = body
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return new Response('Unauthorized', { status: 401 })
+  // Extract userInput + prior history from messages array
+  const lastUser = [...messages].reverse().find((m: { role: string }) => m.role === 'user')
+  const userInput = lastUser?.content ?? ''
+  const messageHistory = messages.filter((m: { role: string; content: string }) => m !== lastUser)
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single()
-
-  const systemPrompt = buildSystemPrompt(mode, profile)
-
-  const stream = await anthropic.messages.stream({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 2048,
-    system: systemPrompt,
-    messages,
+  const proxyReq = new Request(req.url.replace('/api/chat', '/api/ai/strategy'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', cookie: req.headers.get('cookie') ?? '' },
+    body: JSON.stringify({ mode, userInput, conversationId, messageHistory }),
   })
 
-  const encoder = new TextEncoder()
-  const readable = new ReadableStream({
-    async start(controller) {
-      let fullContent = ''
-      for await (const chunk of stream) {
-        if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
-          const text = chunk.delta.text
-          fullContent += text
-          controller.enqueue(encoder.encode(text))
-        }
-      }
-
-      // Save assistant message to DB
-      if (conversationId && fullContent) {
-        await supabase.from('messages').insert({
-          conversation_id: conversationId,
-          role: 'assistant',
-          content: fullContent,
-        })
-      }
-
-      controller.close()
-    },
-  })
-
-  return new Response(readable, {
-    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-  })
+  return strategyPOST(proxyReq)
 }

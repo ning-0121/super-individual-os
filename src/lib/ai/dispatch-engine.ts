@@ -6,18 +6,18 @@ import type { Task, ExecutionUnit, Capability } from '@/types'
 
 // Keywords → required capability
 const CAPABILITY_RULES: { pattern: RegExp; capability: Capability }[] = [
-  { pattern: /代码|编程|开发|debug|bug|api|接口|部署|上线|技术/i,  capability: 'coding' },
-  { pattern: /写作|文案|内容|博客|邮件|文章|推文|发帖/i,            capability: 'writing' },
-  { pattern: /调研|竞品|分析|数据|报告|研究|市场/i,                 capability: 'research' },
-  { pattern: /战略|方向|决策|规划|路线|优先级/i,                    capability: 'strategy' },
-  { pattern: /运营|流程|协调|执行|落地|跟进|管理/i,                 capability: 'ops' },
-  { pattern: /推广|获客|营销|BD|合作|外联|联系/i,                   capability: 'outreach' },
-  { pattern: /设计|UI|UX|视觉|原型|Figma/i,                        capability: 'design' },
-  { pattern: /统计|建模|预测|excel|数据库|SQL/i,                    capability: 'analysis' },
+  { pattern: /代码|编程|开发|debug|bug|api|接口|部署|上线|技术|前端|后端|脚本|自动化|爬虫|程序/i, capability: 'coding' },
+  { pattern: /写作|文案|内容|博客|邮件|文章|推文|发帖|copywriting|newsletter|简介|描述|介绍|脚本/i, capability: 'writing' },
+  { pattern: /调研|竞品|分析|数据|报告|研究|市场|用户访谈|问卷|benchmarking|对比|评估/i,         capability: 'research' },
+  { pattern: /战略|方向|决策|规划|路线|优先级|判断|取舍|押注|选择/i,                              capability: 'strategy' },
+  { pattern: /运营|流程|协调|执行|落地|跟进|管理|SOP|排期|计划|追踪/i,                           capability: 'ops' },
+  { pattern: /推广|获客|营销|BD|合作|外联|联系|冷邮件|cold email|触达|pitch|sales/i,             capability: 'outreach' },
+  { pattern: /设计|UI|UX|视觉|原型|Figma|logo|品牌|排版|配色/i,                                 capability: 'design' },
+  { pattern: /统计|建模|预测|excel|数据库|SQL|表格|指标|北极星|dashboard|漏斗|转化率/i,           capability: 'analysis' },
 ]
 
 // Keywords that strongly indicate human execution
-const HUMAN_SIGNALS = /会议|谈判|签约|客户|演讲|见面|电话|拜访|关系|信任|判断|承诺/i
+const HUMAN_SIGNALS = /会议|谈判|签约|客户|演讲|见面|电话|拜访|关系|信任|判断|承诺|决定|融资|投资人|合同/i
 
 // ─────────────────────────────────────────────────
 // Dispatch result

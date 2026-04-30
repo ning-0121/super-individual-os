@@ -1,11 +1,11 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Sidebar from '@/components/layout/Sidebar'
-import { Task, TaskStatus, ExecutionUnit } from '@/types'
+import { Task, TaskStatus, TaskPriority, ExecutionUnit } from '@/types'
 import { getTasks, createTask, updateTaskStatus, deleteTask, updateTask } from '@/services/tasks'
 import { getExecutionUnits } from '@/services/execution-units'
 import { dispatch } from '@/lib/ai/dispatch-engine'
-import { Plus, Bot, User, Cpu, Clock, Zap } from 'lucide-react'
+import { Plus, Bot, User, Cpu, Clock, Zap, Filter } from 'lucide-react'
 
 const COLUMNS: { id: TaskStatus; label: string; color: string }[] = [
   { id: 'todo',        label: 'Focus Queue', color: 'text-[var(--accent-light)]' },
@@ -28,17 +28,28 @@ const UNIT_COLOR: Record<string, string> = {
 }
 
 export default function TasksPage() {
-  const [tasks, setTasks]       = useState<Task[]>([])
-  const [units, setUnits]       = useState<ExecutionUnit[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [newTitle, setNewTitle] = useState('')
-  const [adding, setAdding]     = useState(false)
+  const [tasks, setTasks]           = useState<Task[]>([])
+  const [units, setUnits]           = useState<ExecutionUnit[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [newTitle, setNewTitle]     = useState('')
+  const [newPriority, setNewPriority] = useState<TaskPriority>('important')
+  const [newDueDate, setNewDueDate] = useState('')
+  const [adding, setAdding]         = useState(false)
+  // Filters
+  const [filterPriority, setFilterPriority] = useState<TaskPriority | 'all'>('all')
+  const [filterUnit, setFilterUnit]         = useState<string>('all')
 
   useEffect(() => {
     Promise.all([getTasks(), getExecutionUnits()])
       .then(([t, u]) => { setTasks(t); setUnits(u) })
       .finally(() => setLoading(false))
   }, [])
+
+  const filtered = tasks.filter(t => {
+    if (filterPriority !== 'all' && t.priority !== filterPriority) return false
+    if (filterUnit !== 'all' && t.execution_unit_id !== filterUnit) return false
+    return true
+  })
 
   async function handleMove(id: string, status: TaskStatus) {
     await updateTaskStatus(id, status)
@@ -49,19 +60,23 @@ export default function TasksPage() {
     e.preventDefault()
     if (!newTitle.trim()) return
 
-    const newTask: Partial<Task> = { title: newTitle.trim(), status: 'todo', priority: 'important' }
+    const newTask: Partial<Task> = {
+      title: newTitle.trim(),
+      status: 'todo',
+      priority: newPriority,
+      due_date: newDueDate || null,
+    }
 
-    // Auto-dispatch: recommend execution unit
+    // Auto-dispatch
     const mockTask = { ...newTask, id: '', user_id: '', project_id: null, description: '',
-      due_date: null, assignee: '', execution_unit_id: null, created_at: '', updated_at: '' } as Task
+      assignee: '', execution_unit_id: null, created_at: '', updated_at: '' } as Task
     const result = dispatch(mockTask, units)
     if (result) newTask.execution_unit_id = result.recommended.id
 
     const t = await createTask(newTask)
-    // Attach unit object for display
     const unit = units.find(u => u.id === t.execution_unit_id)
     setTasks(prev => [{ ...t, execution_unit: unit }, ...prev])
-    setNewTitle(''); setAdding(false)
+    setNewTitle(''); setNewDueDate(''); setAdding(false)
   }
 
   async function handleDelete(id: string) {
@@ -85,6 +100,27 @@ export default function TasksPage() {
             <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>执行看板</h1>
           </div>
           <div className="flex items-center gap-3">
+            {/* Priority filter */}
+            <div className="flex items-center gap-1.5">
+              <Filter size={11} style={{ color: 'var(--text-muted)' }} />
+              <select value={filterPriority} onChange={e => setFilterPriority(e.target.value as TaskPriority | 'all')}
+                className="text-xs rounded-lg px-2 py-1.5 focus:outline-none"
+                style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+                <option value="all">所有优先级</option>
+                <option value="must">MUST</option>
+                <option value="important">IMPORTANT</option>
+                <option value="optional">OPTIONAL</option>
+              </select>
+            </div>
+            {/* Execution unit filter */}
+            {units.length > 0 && (
+              <select value={filterUnit} onChange={e => setFilterUnit(e.target.value)}
+                className="text-xs rounded-lg px-2 py-1.5 focus:outline-none"
+                style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+                <option value="all">所有执行者</option>
+                {units.map(u => <option key={u.id} value={u.id}>{u.avatar} {u.name}</option>)}
+              </select>
+            )}
             <a href="/team" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors flex items-center gap-1">
               <Cpu size={11} /> 管理 Agents
             </a>
@@ -98,11 +134,23 @@ export default function TasksPage() {
 
         <div className="flex-1 overflow-auto p-6">
           {adding && (
-            <form onSubmit={handleAdd} className="glass rounded-xl p-3 flex gap-3 mb-5">
+            <form onSubmit={handleAdd} className="glass rounded-xl p-4 flex flex-wrap gap-3 mb-5 items-end">
               <input autoFocus value={newTitle} onChange={e => setNewTitle(e.target.value)}
                 placeholder="任务标题（AI 会自动推荐执行者）..."
-                className="flex-1 rounded-lg px-3 py-2 text-sm focus:outline-none"
+                className="flex-1 min-w-48 rounded-lg px-3 py-2 text-sm focus:outline-none"
                 style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} />
+              {/* Priority selector */}
+              <select value={newPriority} onChange={e => setNewPriority(e.target.value as TaskPriority)}
+                className="text-xs rounded-lg px-2 py-2 focus:outline-none"
+                style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+                <option value="must">MUST</option>
+                <option value="important">IMPORTANT</option>
+                <option value="optional">OPTIONAL</option>
+              </select>
+              {/* Due date */}
+              <input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)}
+                className="text-xs rounded-lg px-2 py-2 focus:outline-none"
+                style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-secondary)', colorScheme: 'dark' }} />
               <button type="submit" className="px-3 py-2 rounded-lg text-sm text-white" style={{ background: 'var(--accent)' }}>添加</button>
               <button type="button" onClick={() => setAdding(false)} className="px-3 py-2 text-sm" style={{ color: 'var(--text-muted)' }}>取消</button>
             </form>
@@ -112,29 +160,32 @@ export default function TasksPage() {
 
           {!loading && (
             <div className="grid grid-cols-4 gap-4 h-full min-h-0">
-              {COLUMNS.map(col => (
-                <div key={col.id} className="flex flex-col">
-                  <div className="flex items-center gap-2 mb-3 px-1">
-                    <span className={`text-xs font-semibold uppercase tracking-wider ${col.color}`}>{col.label}</span>
-                    <span className="text-[10px] glass px-1.5 py-0.5 rounded" style={{ color: 'var(--text-muted)' }}>
-                      {tasks.filter(t => t.status === col.id).length}
-                    </span>
+              {COLUMNS.map(col => {
+                const colTasks = filtered.filter(t => t.status === col.id)
+                return (
+                  <div key={col.id} className="flex flex-col">
+                    <div className="flex items-center gap-2 mb-3 px-1">
+                      <span className={`text-xs font-semibold uppercase tracking-wider ${col.color}`}>{col.label}</span>
+                      <span className="text-[10px] glass px-1.5 py-0.5 rounded" style={{ color: 'var(--text-muted)' }}>
+                        {colTasks.length}
+                      </span>
+                    </div>
+                    <div className="flex-1 rounded-xl p-2 space-y-2 overflow-auto" style={{ background: 'rgba(13,17,30,0.4)', border: '1px solid var(--border)' }}>
+                      {colTasks.length === 0 && (
+                        <p className="text-[10px] text-center py-6" style={{ color: 'var(--text-muted)' }}>—</p>
+                      )}
+                      {colTasks.map(task => (
+                        <TaskCard key={task.id} task={task}
+                          units={units}
+                          columns={COLUMNS.filter(c => c.id !== col.id)}
+                          onMove={handleMove}
+                          onDelete={handleDelete}
+                          onAssign={handleAssignUnit} />
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex-1 rounded-xl p-2 space-y-2 overflow-auto" style={{ background: 'rgba(13,17,30,0.4)', border: '1px solid var(--border)' }}>
-                    {tasks.filter(t => t.status === col.id).length === 0 && (
-                      <p className="text-[10px] text-center py-6" style={{ color: 'var(--text-muted)' }}>—</p>
-                    )}
-                    {tasks.filter(t => t.status === col.id).map(task => (
-                      <TaskCard key={task.id} task={task}
-                        units={units}
-                        columns={COLUMNS.filter(c => c.id !== col.id)}
-                        onMove={handleMove}
-                        onDelete={handleDelete}
-                        onAssign={handleAssignUnit} />
-                    ))}
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
@@ -155,8 +206,12 @@ function TaskCard({ task, units, columns, onMove, onDelete, onAssign }: {
   const unit = task.execution_unit ?? units.find(u => u.id === task.execution_unit_id)
   const [showAssign, setShowAssign] = useState(false)
 
-  const UnitIcon = unit ? UNIT_ICON[unit.type] : Zap
+  const UnitIcon = unit ? (UNIT_ICON[unit.type] ?? Zap) : Zap
   const unitColor = unit ? UNIT_COLOR[unit.type] : 'text-[var(--text-muted)]'
+
+  // Format due date
+  const dueDate = task.due_date ? new Date(task.due_date) : null
+  const isOverdue = dueDate && dueDate < new Date() && task.status !== 'done'
 
   return (
     <div className={`glass rounded-lg p-3 border-l-4 ${pm.border} group relative`}>
@@ -170,13 +225,18 @@ function TaskCard({ task, units, columns, onMove, onDelete, onAssign }: {
           style={{ background: 'var(--bg-base)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}>
           {pm.label}
         </span>
-        {task.due_date && <Clock size={9} className="text-amber-400" />}
+        {dueDate && (
+          <span className={`flex items-center gap-0.5 text-[9px] ${isOverdue ? 'text-red-400' : 'text-amber-400'}`}>
+            <Clock size={8} />
+            {dueDate.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })}
+            {isOverdue && ' ⚠'}
+          </span>
+        )}
       </div>
 
       {/* Execution unit badge */}
       <div className="flex items-center justify-between">
-        <button
-          onClick={() => setShowAssign(!showAssign)}
+        <button onClick={() => setShowAssign(!showAssign)}
           className={`flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded transition-colors ${unitColor}`}
           style={{ border: '1px solid var(--border)', background: 'var(--bg-base)' }}>
           <UnitIcon size={8} />
@@ -189,7 +249,7 @@ function TaskCard({ task, units, columns, onMove, onDelete, onAssign }: {
         <div className="absolute left-0 right-0 top-full mt-1 z-10 glass-strong rounded-lg p-1 shadow-xl"
           style={{ border: '1px solid var(--border-strong)' }}>
           {units.map(u => {
-            const Icon = UNIT_ICON[u.type]
+            const Icon = UNIT_ICON[u.type] ?? Zap
             const color = UNIT_COLOR[u.type]
             return (
               <button key={u.id}

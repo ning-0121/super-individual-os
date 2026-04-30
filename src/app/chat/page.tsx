@@ -4,6 +4,11 @@ import ReactMarkdown from 'react-markdown'
 import { AlertTriangle, Brain, ChevronRight, Plus, Trash2 } from 'lucide-react'
 import type { AIMode } from '@/lib/claude'
 import { MODE_LABELS } from '@/lib/claude'
+import type { ChatMode } from '@/types'
+
+const AI_TO_CHAT_MODE: Record<AIMode, ChatMode> = {
+  ceo: 'strategy', coo: 'execution', growth: 'strategy',
+}
 import type { DecisionSignal } from '@/lib/ai/decision-engine'
 import type { Feedback } from '@/lib/ai/learning-loop'
 import { RiskBadge } from '@/components/ui/risk-badge'
@@ -59,7 +64,7 @@ export default function ChatPage() {
 
     let convId = activeId
     if (!convId) {
-      const conv = await createConversation(mode as unknown as import('@/types').ChatMode, content)
+      const conv = await createConversation(AI_TO_CHAT_MODE[mode], content)
       convId = conv.id
       setActiveId(convId)
       setConvs(prev => [conv, ...prev])

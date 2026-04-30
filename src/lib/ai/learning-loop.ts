@@ -21,17 +21,27 @@ export function extractActionItems(
     const header = headerMatch[1]
 
     let timeframe: '7days' | '30days' | '90days' | 'general' = 'general'
-    if (/7\s*天/.test(header))  timeframe = '7days'
-    else if (/30\s*天/.test(header)) timeframe = '30days'
-    else if (/90\s*天/.test(header)) timeframe = '90days'
-    else if (!/(风险|阶段|矛盾|排序|配置|资源|分析|判断)/.test(header)) continue
+    if (/7\s*天|本周|7\s*days?/i.test(header))   timeframe = '7days'
+    else if (/30\s*天|本月|30\s*days?/i.test(header)) timeframe = '30days'
+    else if (/90\s*天|季度|90\s*days?/i.test(header)) timeframe = '90days'
+    else if (/(下一步|行动|任务|执行|待办|action)/i.test(header)) timeframe = 'general'
+    else if (/(风险|阶段|矛盾|排序|配置|资源|分析|判断|增长|渠道|阶段|摘要|总结)/i.test(header)) continue
 
-    const bullets = section.match(/^[-•]\s+.+$/gm) ?? []
-    const numbered = section.match(/^\d+\.\s+.+$/gm) ?? []
+    const bullets  = section.match(/^[\-\*•]\s+.+$/gm) ?? []
+    const numbered = section.match(/^\d+[.。]\s+.+$/gm) ?? []
 
     ;[...bullets, ...numbered].forEach(line => {
-      const item = line.replace(/^[-•\d.]\s+/, '').trim()
-      if (item.length > 5) results.push({ item, timeframe })
+      const item = line.replace(/^[\-\*•\d][.。]?\s+/, '').trim()
+      if (item.length > 5 && item.length < 200) results.push({ item, timeframe })
+    })
+  }
+
+  // Fallback: if zero items extracted, scan entire text for bullets
+  if (results.length === 0) {
+    const allBullets = text.match(/^[\-\*•]\s+.{6,100}$/gm) ?? []
+    allBullets.slice(0, 10).forEach(line => {
+      const item = line.replace(/^[\-\*•]\s+/, '').trim()
+      results.push({ item, timeframe: 'general' })
     })
   }
 

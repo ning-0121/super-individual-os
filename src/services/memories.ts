@@ -21,6 +21,11 @@ export async function saveMemory(input: Omit<Memory, 'id' | 'user_id' | 'created
   return data
 }
 
+export async function updateMemory(id: string, input: Partial<Pick<Memory, 'content' | 'importance'>>): Promise<void> {
+  const { error } = await db().from('memories').update(input).eq('id', id)
+  if (error) throw error
+}
+
 export async function deleteMemory(id: string): Promise<void> {
   const { error } = await db().from('memories').delete().eq('id', id)
   if (error) throw error

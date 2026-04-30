@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { buildSystemPrompt, AIMode } from '@/lib/claude'
 import { buildContext } from '@/lib/ai/context-engine'
 import { runDecisionEngine } from '@/lib/ai/decision-engine'
-import { logDecision } from '@/lib/ai/learning-loop'
+import { logDecision, extractActionItems, getLearningInsights } from '@/lib/ai/learning-loop'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -39,10 +39,20 @@ export async function POST(req: Request) {
   })
 
   // Override mode if Decision Engine detects a clearer signal
-  const effectiveMode: AIMode = (signal.detectedMode !== 'general' ? signal.detectedMode : mode) as AIMode
+  const VALID_AI_MODES: AIMode[] = ['ceo', 'coo', 'growth']
+  const effectiveMode: AIMode =
+    VALID_AI_MODES.includes(signal.detectedMode as AIMode)
+      ? (signal.detectedMode as AIMode)
+      : VALID_AI_MODES.includes(mode as AIMode)
+        ? (mode as AIMode)
+        : 'ceo'
 
-  // 3. Build enhanced system prompt
-  const systemPrompt = buildSystemPrompt(effectiveMode, contextPrompt, signal)
+  // 3. Build enhanced system prompt, injecting learning insights
+  const insights = await getLearningInsights(supabase, user.id)
+  const learningBlock = insights.totalDecisions > 0
+    ? `\n## 学习记录（你过去给出建议的统计）\n- 历史决策次数：${insights.totalDecisions}\n- 用户认可率：${insights.helpfulRate}%\n- 最常用模式：${insights.topMode.toUpperCase()}\n${insights.topRisk ? `- 用户高频风险：${insights.topRisk}（请在本次回答中特别关注）` : ''}\n- 待执行行动项：${insights.actionsPending} 个（避免给出太多新行动项，帮用户聚焦）\n`
+    : ''
+  const systemPrompt = buildSystemPrompt(effectiveMode, contextPrompt + learningBlock, signal)
 
   // 4. Save user message
   if (conversationId) {
@@ -111,7 +121,6 @@ export async function POST(req: Request) {
           .eq('id', decisionLogId)
 
         // Extract and insert execution items now that we have full content
-        const { extractActionItems } = await import('@/lib/ai/learning-loop')
         const actions = extractActionItems(fullContent)
         if (actions.length > 0) {
           // Remove placeholder empty inserts (logDecision inserted with empty aiOutput)
