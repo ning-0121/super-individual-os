@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { runAgentLoop, runQAEvaluation, type ProjectContext, type AgentEvaluation } from '@/lib/ai/gateway'
 import { getUserConnectedTools } from '@/lib/tools/router'
 import { extractAndSaveArtifacts } from '@/lib/ai/artifact-extractor'
+import { logger } from '@/lib/observability'
 import type { ExecutionUnit, Task, TaskType } from '@/types'
 
 const QA_TRIGGER_TYPES: TaskType[] = ['engineering', 'feature', 'content', 'design', 'research', 'analysis']
@@ -150,6 +151,9 @@ export async function executeTaskRun(params: {
   const availableTools = agentAllowed.filter(tool => userConnected.includes(tool))
 
   // Run multi-step loop
+  const runStart = Date.now()
+  logger.info('run.start', { user_id: userId, task_id: taskId, task_run_id: taskRun.id, agent_id: a.id, agent_name: a.name, retry_count: retryCount })
+
   let primaryResult
   try {
     primaryResult = await runAgentLoop({
@@ -158,9 +162,12 @@ export async function executeTaskRun(params: {
     })
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e)
-    console.error('[runAgentLoop] error:', errMsg)
+    logger.error('run.fail', {
+      user_id: userId, task_id: taskId, task_run_id: taskRun.id, agent_id: a.id,
+      duration_ms: Date.now() - runStart, retry_count: retryCount,
+      error_message: errMsg,
+    })
 
-    // Save error context for one-click retry
     await supabase.from('task_runs').update({
       run_status: 'failed',
       error_message: errMsg,
@@ -170,6 +177,7 @@ export async function executeTaskRun(params: {
         agent_id: a.id,
         agent_name: a.name,
         retry_count: retryCount,
+        execution_duration_ms: Date.now() - runStart,
         timestamp: new Date().toISOString(),
       },
       finished_at: new Date().toISOString(),
@@ -205,6 +213,11 @@ export async function executeTaskRun(params: {
     }
   }
 
+  // Compute observability metrics
+  const execution_duration_ms = Date.now() - runStart
+  const tool_error_count = primaryResult.tool_calls.filter(t => t.status === 'error').length
+  const tool_success_count = primaryResult.tool_calls.filter(t => t.status === 'success').length
+
   // Persist final task_run
   const finalPayload = {
     summary: primaryResult.summary,
@@ -214,7 +227,19 @@ export async function executeTaskRun(params: {
     intermediate_steps: primaryResult.intermediate_steps,
     total_steps: primaryResult.total_steps,
     evaluation,
+    // V1.5 observability
+    execution_duration_ms,
+    tool_error_count,
+    tool_success_count,
   }
+
+  logger.info('run.ok', {
+    user_id: userId, task_id: taskId, task_run_id: taskRun.id, agent_id: a.id, agent_name: a.name,
+    duration_ms: execution_duration_ms,
+    total_steps: primaryResult.total_steps,
+    tool_success_count, tool_error_count,
+    qa_verdict: evaluation?.verdict ?? null,
+  })
 
   await supabase.from('task_runs').update({
     run_status: 'succeeded',

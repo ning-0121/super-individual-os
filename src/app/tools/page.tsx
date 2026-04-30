@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Sidebar from '@/components/layout/Sidebar'
-import { Wrench, CheckCircle2, XCircle, Clock, ExternalLink, Loader2, X, GitBranch, Trash2, Edit2 } from 'lucide-react'
+import { CheckCircle2, XCircle, Clock, ExternalLink, Loader2, X, GitBranch, Trash2, Edit2, Database, Rocket, Lock } from 'lucide-react'
 
 type Integration = {
   id: string
@@ -13,27 +13,82 @@ type Integration = {
   created_at: string
 }
 
+interface FieldDef { key: string; label: string; type: 'text' | 'password'; required: boolean; placeholder?: string; help?: string }
+interface ToolDef {
+  key: string
+  name: string
+  type: string
+  description: string
+  actions: string[]
+  fields: FieldDef[]
+  allowed_agent_types: string[]
+  external_link?: { label: string; url: string }
+  icon: React.FC<{ size?: number; className?: string }>
+}
+
+const NATIVE_TOOLS: ToolDef[] = [
+  {
+    key: 'github',
+    name: 'GitHub',
+    type: 'API · PAT',
+    description: '创建分支、提交文件、开 PR、建 Issue。Engineering Agent 可调用产出真实 PR。',
+    actions: ['createPullRequest', 'createIssue', 'listRepos'],
+    fields: [
+      { key: 'access_token',  label: 'Personal Access Token', type: 'password', required: true,  placeholder: 'ghp_... 或 fine-grained token' },
+      { key: 'default_repo',  label: '默认仓库（可选）',       type: 'text',     required: false, placeholder: 'username/repo-name' },
+      { key: 'default_branch',label: '默认基础分支',           type: 'text',     required: false, placeholder: 'main' },
+    ],
+    allowed_agent_types: ['engineering', 'devops', 'qa'],
+    external_link: { label: '创建 Fine-grained PAT', url: 'https://github.com/settings/tokens?type=beta' },
+    icon: GitBranch,
+  },
+  {
+    key: 'supabase',
+    name: 'Supabase',
+    type: 'Database · Service Role Key',
+    description: '生成 SQL migration、静态校验 SQL、验证连接。无需 URL 也可使用本地校验。',
+    actions: ['createMigrationFile', 'validateSql', 'listTables'],
+    fields: [
+      { key: 'project_url',     label: 'Project URL（可选，仅 listTables 用）', type: 'text',     required: false, placeholder: 'https://xxx.supabase.co' },
+      { key: 'service_role_key',label: 'Service Role Key（可选）',              type: 'password', required: false, placeholder: 'eyJ...' },
+    ],
+    allowed_agent_types: ['engineering', 'devops', 'qa'],
+    external_link: { label: 'Supabase Dashboard', url: 'https://supabase.com/dashboard' },
+    icon: Database,
+  },
+  {
+    key: 'vercel',
+    name: 'Vercel',
+    type: 'Deploy · API Token',
+    description: '查询项目信息、部署列表、部署状态。DevOps Agent 可监控部署。',
+    actions: ['getProject', 'listDeployments', 'getDeploymentStatus'],
+    fields: [
+      { key: 'access_token', label: 'API Token',           type: 'password', required: true,  placeholder: 'vercel_token...' },
+      { key: 'team_id',      label: 'Team ID（可选）',     type: 'text',     required: false },
+      { key: 'project_id',   label: '默认 Project ID（可选）', type: 'text',  required: false },
+    ],
+    allowed_agent_types: ['devops', 'engineering'],
+    external_link: { label: '创建 Vercel Token', url: 'https://vercel.com/account/tokens' },
+    icon: Rocket,
+  },
+]
+
 const COMING_SOON: Array<{ name: string; type: string; description: string; agents: string[] }> = [
-  { name: 'Supabase',     type: 'Database', description: '数据库迁移、Auth 管理',                     agents: ['Engineering','DevOps'] },
-  { name: 'Vercel',       type: 'Deploy',   description: '部署、环境变量、域名',                       agents: ['DevOps'] },
-  { name: 'Cursor',       type: 'IDE',      description: 'AI 辅助编码',                              agents: ['Engineering'] },
-  { name: 'Figma',        type: 'Design',   description: 'UI/UX 原型',                              agents: ['Design','Product'] },
-  { name: 'Notion',       type: 'Docs',     description: '文档管理',                                agents: ['Research','Product','Growth'] },
-  { name: 'Slack',        type: 'Comms',    description: '团队通知',                                agents: ['全部'] },
-  { name: 'Gmail',        type: 'Email',    description: '邮件外联',                                agents: ['Growth'] },
-  { name: 'Google Cal',   type: 'Calendar', description: '日程管理',                                agents: ['Strategic'] },
-  { name: 'Blender',      type: '3D',       description: '3D 建模',                                 agents: ['3D Avatar'] },
-  { name: 'Three.js',     type: '3D/Web',   description: 'Web 3D 渲染',                            agents: ['3D Avatar','Engineering'] },
-  { name: 'OpenAI API',   type: 'AI',       description: 'GPT-4o 备用',                            agents: ['全部'] },
-  { name: 'Gemini API',   type: 'AI',       description: 'Gemini 多模态',                          agents: ['Research','3D Avatar'] },
-  { name: 'Claude Code',  type: 'CLI',      description: 'Claude Code CLI',                       agents: ['Engineering','DevOps'] },
+  { name: 'Cursor',      type: 'IDE',      description: 'AI 辅助编码',         agents: ['Engineering'] },
+  { name: 'Figma',       type: 'Design',   description: 'UI/UX 原型',          agents: ['Design','Product'] },
+  { name: 'Notion',      type: 'Docs',     description: '文档管理',            agents: ['Research','Product'] },
+  { name: 'Slack',       type: 'Comms',    description: '团队通知',            agents: ['全部'] },
+  { name: 'Gmail',       type: 'Email',    description: '邮件外联',            agents: ['Growth'] },
+  { name: 'Google Cal',  type: 'Calendar', description: '日程管理',            agents: ['Strategic'] },
+  { name: 'Blender',     type: '3D',       description: '3D 建模',             agents: ['3D Avatar'] },
+  { name: 'OpenAI API',  type: 'AI',       description: 'GPT-4o 备用',         agents: ['全部'] },
+  { name: 'Gemini API',  type: 'AI',       description: 'Gemini 多模态',       agents: ['Research'] },
 ]
 
 export default function ToolsPage() {
   const [integrations, setIntegrations] = useState<Integration[]>([])
-  const [loading, setLoading]           = useState(true)
-  const [showGitBranchModal, setShowGitBranchModal] = useState(false)
-  const [editingIntegration, setEditingIntegration] = useState<Integration | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [editingTool, setEditingTool] = useState<{ tool: ToolDef; existing: Integration | null } | null>(null)
 
   useEffect(() => { load() }, [])
 
@@ -49,8 +104,11 @@ export default function ToolsPage() {
     setIntegrations(prev => prev.filter(i => i.id !== id))
   }
 
-  const githubIntegration = integrations.find(i => i.tool_name === 'github')
-  const builtInTools = ['github']  // Tools with handlers (V1.2)
+  function findIntegration(toolKey: string) {
+    return integrations.find(i => i.tool_name === toolKey) ?? null
+  }
+
+  const connectedCount = integrations.filter(i => i.auth_status === 'connected').length
 
   return (
     <div className="flex h-screen bg-grid" style={{ backgroundColor: 'var(--bg-base)' }}>
@@ -62,12 +120,14 @@ export default function ToolsPage() {
             <p className="text-xs font-mono text-orange-400 tracking-widest uppercase mb-0.5">Multi-Agent OS</p>
             <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Tool Integrations</h1>
           </div>
-          <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            {integrations.filter(i => i.auth_status === 'connected').length} 已连接
-            <span className="mx-2">·</span>
-            {builtInTools.length} 可连接
-            <span className="mx-2">·</span>
-            {COMING_SOON.length} 即将支持
+          <div className="text-xs flex items-center gap-3" style={{ color: 'var(--text-muted)' }}>
+            <span className="flex items-center gap-1 text-emerald-400">
+              <Lock size={11} /> 密钥已加密存储 (AES-256-GCM)
+            </span>
+            <span>·</span>
+            <span>{connectedCount} 已连接</span>
+            <span>·</span>
+            <span>{NATIVE_TOOLS.length} 可连接</span>
           </div>
         </div>
 
@@ -76,69 +136,102 @@ export default function ToolsPage() {
 
           {!loading && (
             <>
-              {/* ── Section 1: Active integrations ── */}
+              {/* Connected */}
               {integrations.length > 0 && (
                 <div className="mb-8">
                   <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">已连接工具</p>
                   <div className="grid grid-cols-2 gap-3">
-                    {integrations.map(int => (
-                      <div key={int.id} className="glass-strong rounded-xl p-4 group" style={{ border: '1px solid rgba(52,211,153,0.2)' }}>
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            {int.tool_name === 'github' && <GitBranch size={14} className="text-emerald-400" />}
-                            <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{int.tool_name}</p>
-                          </div>
-                          <div className="flex items-center gap-1">
+                    {integrations.map(int => {
+                      const def = NATIVE_TOOLS.find(t => t.key === int.tool_name)
+                      const Icon = def?.icon ?? GitBranch
+                      return (
+                        <div key={int.id} className="glass-strong rounded-xl p-4 group" style={{ border: '1px solid rgba(52,211,153,0.2)' }}>
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <Icon size={14} className="text-emerald-400" />
+                              <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{def?.name ?? int.tool_name}</p>
+                            </div>
                             <span className="flex items-center gap-1 text-[10px] text-emerald-400">
                               <CheckCircle2 size={10} /> 已连接
                             </span>
                           </div>
-                        </div>
-
-                        {/* Config preview */}
-                        <div className="text-[10px] space-y-0.5 mb-3" style={{ color: 'var(--text-muted)' }}>
-                          {Object.entries(int.config ?? {}).map(([k, v]) => (
-                            <p key={k}>{k}: <span style={{ color: 'var(--text-secondary)' }}>{String(v) || '—'}</span></p>
-                          ))}
-                        </div>
-
-                        <div className="flex gap-2">
-                          {int.tool_name === 'github' && (
-                            <button onClick={() => { setEditingIntegration(int); setShowGitBranchModal(true) }}
-                              className="flex items-center gap-1 text-[10px] px-2 py-1 rounded transition-colors"
-                              style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
-                              <Edit2 size={9} /> 修改
+                          <div className="text-[10px] space-y-0.5 mb-3" style={{ color: 'var(--text-muted)' }}>
+                            {Object.entries(int.config ?? {}).map(([k, v]) => (
+                              <p key={k}>{k}: <span style={{ color: 'var(--text-secondary)' }}>{String(v) || '—'}</span></p>
+                            ))}
+                          </div>
+                          <div className="flex gap-2">
+                            {def && (
+                              <button onClick={() => setEditingTool({ tool: def, existing: int })}
+                                className="flex items-center gap-1 text-[10px] px-2 py-1 rounded transition-colors"
+                                style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+                                <Edit2 size={9} /> 修改
+                              </button>
+                            )}
+                            <button onClick={() => disconnect(int.id)}
+                              className="flex items-center gap-1 text-[10px] px-2 py-1 rounded transition-colors hover:text-red-400"
+                              style={{ border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                              <Trash2 size={9} /> 断开
                             </button>
-                          )}
-                          <button onClick={() => disconnect(int.id)}
-                            className="flex items-center gap-1 text-[10px] px-2 py-1 rounded transition-colors hover:text-red-400"
-                            style={{ border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
-                            <Trash2 size={9} /> 断开
-                          </button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               )}
 
-              {/* ── Section 2: Available (V1.2 native) ── */}
+              {/* Native */}
               <div className="mb-8">
-                <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">可连接工具（V1.2 已实现）</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <ToolConnectCard
-                    name="GitHub"
-                    icon={<GitBranch size={14} className="text-[var(--text-primary)]" />}
-                    type="API · PAT"
-                    description="创建分支、提交文件、开 PR、建 Issue。Engineering Agent 可以调用此工具产出真实 PR。"
-                    actions={['createPullRequest', 'createIssue', 'listRepos']}
-                    connected={!!githubIntegration}
-                    onConnect={() => { setEditingIntegration(null); setShowGitBranchModal(true) }}
-                  />
+                <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">可连接工具（V1.5 已实现）</p>
+                <div className="grid grid-cols-3 gap-3">
+                  {NATIVE_TOOLS.map(t => {
+                    const Icon = t.icon
+                    const existing = findIntegration(t.key)
+                    return (
+                      <div key={t.key} className="glass rounded-xl p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <Icon size={14} className="text-[var(--text-primary)]" />
+                            <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{t.name}</p>
+                          </div>
+                          {existing ? (
+                            <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+                              <CheckCircle2 size={10} /> 已连接
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-[10px] text-slate-400">
+                              <XCircle size={10} /> 未连接
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded inline-block mb-2"
+                          style={{ background: 'var(--bg-base)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                          {t.type}
+                        </span>
+                        <p className="text-[11px] mb-2 leading-relaxed" style={{ color: 'var(--text-muted)' }}>{t.description}</p>
+                        <div className="flex flex-wrap gap-1 mb-3">
+                          {t.actions.map(a => (
+                            <code key={a} className="text-[9px] px-1.5 py-0.5 rounded font-mono"
+                              style={{ background: 'rgba(99,102,241,0.08)', color: 'var(--accent-light)', border: '1px solid var(--border)' }}>
+                              {a}
+                            </code>
+                          ))}
+                        </div>
+                        {!existing && (
+                          <button onClick={() => setEditingTool({ tool: t, existing: null })}
+                            className="w-full text-xs px-3 py-1.5 rounded-lg transition-colors"
+                            style={{ background: 'var(--accent)', color: 'white' }}>
+                            连接 {t.name}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
 
-              {/* ── Section 3: Coming soon ── */}
+              {/* Coming soon */}
               <div>
                 <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">即将支持</p>
                 <div className="grid grid-cols-3 gap-3">
@@ -152,150 +245,108 @@ export default function ToolsPage() {
                         style={{ background: 'var(--bg-base)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
                         {t.type}
                       </span>
-                      <p className="text-[10px] mb-2" style={{ color: 'var(--text-muted)' }}>{t.description}</p>
-                      <div className="flex flex-wrap gap-1">
-                        {t.agents.map(a => (
-                          <span key={a} className="text-[8px] px-1 py-0.5 rounded"
-                            style={{ background: 'rgba(99,102,241,0.06)', color: 'var(--accent-light)' }}>
-                            {a}
-                          </span>
-                        ))}
-                      </div>
+                      <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{t.description}</p>
                     </div>
                   ))}
                 </div>
               </div>
 
               <div className="glass rounded-xl p-5 mt-6">
-                <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">Tool Layer 架构</p>
-                <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                  Agent 在 system prompt 中声明 <code className="text-[var(--accent-light)]">tools_allowed</code>。
-                  当用户已连接对应工具时，AI Gateway 会注入工具能力清单 → Claude 在 JSON 输出中生成 <code>tool_calls[]</code> →
-                  Tool Router 校验权限并执行 → 结果保存到 <code>task_runs.tool_calls</code> → UI 显示真实产出（如 PR URL）。
-                </p>
+                <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">安全保障</p>
+                <ul className="text-xs space-y-1.5" style={{ color: 'var(--text-muted)' }}>
+                  <li>🔒 所有 token / secret 字段使用 <code className="text-[var(--accent-light)]">AES-256-GCM</code> 加密存储</li>
+                  <li>🛡️ Row Level Security 隔离用户数据，前端永不返回明文密钥（GET 接口已脱敏）</li>
+                  <li>🔑 加密密钥来自 <code className="text-[var(--accent-light)]">ENCRYPTION_KEY</code> 环境变量（运维需妥善保管）</li>
+                  <li>📝 工具调用日志结构化输出，不打印密钥内容</li>
+                </ul>
               </div>
             </>
           )}
         </div>
       </main>
 
-      {/* GitHub Connect Modal */}
-      {showGitBranchModal && (
-        <GitHubConnectModal
-          existing={editingIntegration}
-          onClose={() => { setShowGitBranchModal(false); setEditingIntegration(null) }}
-          onSaved={() => { load(); setShowGitBranchModal(false); setEditingIntegration(null) }}
+      {editingTool && (
+        <ConnectModal
+          tool={editingTool.tool}
+          existing={editingTool.existing}
+          onClose={() => setEditingTool(null)}
+          onSaved={() => { load(); setEditingTool(null) }}
         />
       )}
     </div>
   )
 }
 
-function ToolConnectCard({ name, icon, type, description, actions, connected, onConnect }: {
-  name: string
-  icon: React.ReactNode
-  type: string
-  description: string
-  actions: string[]
-  connected: boolean
-  onConnect: () => void
-}) {
-  return (
-    <div className="glass rounded-xl p-4">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          {icon}
-          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{name}</p>
-        </div>
-        {connected ? (
-          <span className="flex items-center gap-1 text-[10px] text-emerald-400">
-            <CheckCircle2 size={10} /> 已连接
-          </span>
-        ) : (
-          <span className="flex items-center gap-1 text-[10px] text-slate-400">
-            <XCircle size={10} /> 未连接
-          </span>
-        )}
-      </div>
-      <span className="text-[9px] px-1.5 py-0.5 rounded inline-block mb-2"
-        style={{ background: 'var(--bg-base)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
-        {type}
-      </span>
-      <p className="text-[11px] mb-3 leading-relaxed" style={{ color: 'var(--text-muted)' }}>{description}</p>
-      <div className="flex flex-wrap gap-1 mb-3">
-        {actions.map(a => (
-          <code key={a} className="text-[9px] px-1.5 py-0.5 rounded font-mono"
-            style={{ background: 'rgba(99,102,241,0.08)', color: 'var(--accent-light)', border: '1px solid var(--border)' }}>
-            {a}
-          </code>
-        ))}
-      </div>
-      {!connected && (
-        <button onClick={onConnect}
-          className="w-full text-xs px-3 py-1.5 rounded-lg transition-colors"
-          style={{ background: 'var(--accent)', color: 'white' }}>
-          连接 {name}
-        </button>
-      )}
-    </div>
-  )
-}
-
-function GitHubConnectModal({ existing, onClose, onSaved }: {
+// ─────────────────────────────────────────────────
+// Generic ConnectModal — works for any ToolDef
+// ─────────────────────────────────────────────────
+function ConnectModal({ tool, existing, onClose, onSaved }: {
+  tool: ToolDef
   existing: Integration | null
   onClose: () => void
   onSaved: () => void
 }) {
-  const [token, setToken]             = useState('')
-  const [defaultRepo, setDefaultRepo] = useState((existing?.config?.default_repo as string) ?? '')
-  const [defaultBranch, setDefaultBranch] = useState((existing?.config?.default_branch as string) ?? 'main')
-  const [testing, setTesting]   = useState(false)
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {}
+    for (const f of tool.fields) {
+      const existingVal = existing?.config?.[f.key]
+      init[f.key] = typeof existingVal === 'string' ? existingVal : ''
+    }
+    return init
+  })
+  const [testing, setTesting] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; message?: string } | null>(null)
-  const [saving, setSaving]     = useState(false)
+
+  function setField(key: string, val: string) {
+    setValues(prev => ({ ...prev, [key]: val }))
+    setTestResult(null)
+  }
 
   async function testConnection() {
-    if (!token) { setTestResult({ ok: false, message: '请先输入 PAT' }); return }
     setTesting(true)
+    // For test, send raw values (the user just typed plaintext)
     const r = await fetch('/api/tool-integrations/test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tool_name: 'github', config: { access_token: token } }),
+      body: JSON.stringify({ tool_name: tool.key, config: values }),
     })
-    const result = await r.json()
-    setTestResult(result)
+    setTestResult(await r.json())
     setTesting(false)
   }
 
   async function save() {
-    if (!token && !existing) { setTestResult({ ok: false, message: '请输入 PAT' }); return }
-    setSaving(true)
-
-    // If editing without new token, keep existing — but our GET masks it. So we need user to re-enter or skip update.
-    const config: Record<string, unknown> = {
-      default_repo: defaultRepo,
-      default_branch: defaultBranch,
+    // Validate required fields (allow masked values when editing)
+    for (const f of tool.fields) {
+      if (!f.required) continue
+      const v = values[f.key]
+      if (!v || (existing && v.startsWith('••'))) {
+        if (!existing) {
+          setTestResult({ ok: false, message: `请填写 ${f.label}` })
+          return
+        }
+      }
     }
-    if (token) config.access_token = token
-
+    setSaving(true)
     const r = await fetch('/api/tool-integrations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        tool_name: 'github',
+        tool_name: tool.key,
         tool_type: 'api',
-        config,
-        allowed_agent_types: ['engineering', 'devops', 'qa'],
+        config: values,
+        allowed_agent_types: tool.allowed_agent_types,
       }),
     })
-
-    if (r.ok) {
-      onSaved()
-    } else {
-      const err = await r.json()
-      setTestResult({ ok: false, message: err.error ?? '保存失败' })
+    if (r.ok) onSaved()
+    else {
+      const err = await r.json().catch(() => ({}))
+      setTestResult({ ok: false, message: err?.error?.message ?? err?.error ?? '保存失败' })
     }
     setSaving(false)
   }
+
+  const Icon = tool.icon
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -304,51 +355,38 @@ function GitHubConnectModal({ existing, onClose, onSaved }: {
         style={{ border: '1px solid var(--border-strong)' }}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <GitBranch size={16} className="text-[var(--text-primary)]" />
+            <Icon size={16} className="text-[var(--text-primary)]" />
             <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-              {existing ? '编辑 GitHub 连接' : '连接 GitHub'}
+              {existing ? `编辑 ${tool.name} 连接` : `连接 ${tool.name}`}
             </h2>
           </div>
           <button onClick={onClose} style={{ color: 'var(--text-muted)' }}><X size={16} /></button>
         </div>
 
         <div className="space-y-4">
-          {/* PAT input */}
-          <div>
-            <label className="label-xs">Personal Access Token (PAT)</label>
-            <input type="password" value={token} onChange={e => { setToken(e.target.value); setTestResult(null) }}
-              placeholder={existing ? '留空保持原 token，输入新值则覆盖' : 'ghp_… 或 fine-grained token'}
-              className="w-full rounded-lg px-3 py-2 text-xs font-mono focus:outline-none"
-              style={{ background: 'var(--bg-base)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} />
-            <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noreferrer"
-              className="text-[10px] mt-1.5 inline-flex items-center gap-1"
+          {tool.fields.map(f => (
+            <div key={f.key}>
+              <label className="label-xs">{f.label}{f.required ? ' *' : ''}</label>
+              <input
+                type={f.type}
+                value={values[f.key] ?? ''}
+                onChange={e => setField(f.key, e.target.value)}
+                placeholder={existing && f.type === 'password' ? '留空保持原值，输入新值则覆盖' : f.placeholder}
+                className="w-full rounded-lg px-3 py-2 text-xs font-mono focus:outline-none"
+                style={{ background: 'var(--bg-base)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+              />
+              {f.help && <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>{f.help}</p>}
+            </div>
+          ))}
+
+          {tool.external_link && (
+            <a href={tool.external_link.url} target="_blank" rel="noreferrer"
+              className="text-[10px] inline-flex items-center gap-1"
               style={{ color: 'var(--accent-light)' }}>
-              <ExternalLink size={9} /> 创建 Fine-grained PAT（需 Contents + Pull requests 读写权限）
+              <ExternalLink size={9} /> {tool.external_link.label}
             </a>
-          </div>
+          )}
 
-          {/* Default repo */}
-          <div>
-            <label className="label-xs">默认仓库（可选）</label>
-            <input value={defaultRepo} onChange={e => setDefaultRepo(e.target.value)}
-              placeholder="username/repo-name"
-              className="w-full rounded-lg px-3 py-2 text-xs font-mono focus:outline-none"
-              style={{ background: 'var(--bg-base)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} />
-            <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>
-              Agent 调用时未指定 repo 则使用此默认值
-            </p>
-          </div>
-
-          {/* Default branch */}
-          <div>
-            <label className="label-xs">默认基础分支</label>
-            <input value={defaultBranch} onChange={e => setDefaultBranch(e.target.value)}
-              placeholder="main"
-              className="w-full rounded-lg px-3 py-2 text-xs font-mono focus:outline-none"
-              style={{ background: 'var(--bg-base)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} />
-          </div>
-
-          {/* Test result */}
           {testResult && (
             <div className="text-xs px-3 py-2 rounded-lg flex items-start gap-2"
               style={{
@@ -361,9 +399,8 @@ function GitHubConnectModal({ existing, onClose, onSaved }: {
             </div>
           )}
 
-          {/* Actions */}
           <div className="flex gap-2">
-            <button onClick={testConnection} disabled={testing || !token}
+            <button onClick={testConnection} disabled={testing}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs disabled:opacity-40"
               style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
               {testing ? <Loader2 size={11} className="animate-spin" /> : null}
@@ -373,20 +410,17 @@ function GitHubConnectModal({ existing, onClose, onSaved }: {
               className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium text-white disabled:opacity-40"
               style={{ background: 'var(--accent)' }}>
               {saving ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle2 size={11} />}
-              {saving ? '保存中...' : '保存连接'}
+              {saving ? '保存中...' : '保存'}
             </button>
           </div>
 
-          <div className="text-[10px] p-2 rounded-lg" style={{ background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.15)', color: 'var(--text-muted)' }}>
-            <p className="text-amber-400 font-semibold mb-1">⚠ 安全提示</p>
-            <p>PAT 以明文存储在 Supabase（仅你账号可读，已开启 RLS）。生产环境建议用 Supabase Vault 或 OAuth。</p>
-            <p className="mt-1">建议为 Agent 创建专用 PAT，权限仅授予测试仓库。</p>
+          <div className="text-[10px] p-2 rounded-lg flex items-start gap-2"
+            style={{ background: 'rgba(52,211,153,0.04)', border: '1px solid rgba(52,211,153,0.15)', color: 'var(--text-muted)' }}>
+            <Lock size={11} className="mt-0.5 text-emerald-400 shrink-0" />
+            <span>敏感字段（token / secret / key）会用 <strong>AES-256-GCM</strong> 加密后存入数据库，前端只显示 <code>••••••••</code>。运行时由服务端解密使用，永不发回浏览器。</span>
           </div>
         </div>
       </div>
     </div>
   )
 }
-
-// Wrench icon imported via lucide-react; not used directly anymore but kept to satisfy ESLint
-void Wrench

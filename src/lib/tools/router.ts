@@ -1,13 +1,18 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ToolCall, ToolResult, ToolHandler, ToolActionDescription } from './types'
 import { githubTool } from './github'
+import { supabaseTool } from './supabase-tool'
+import { vercelTool } from './vercel-tool'
+import { decryptSecretFields } from '@/lib/crypto'
+import { logger } from '@/lib/observability'
 
 // ─────────────────────────────────────────────────
 // Registry
 // ─────────────────────────────────────────────────
 export const TOOL_REGISTRY: Record<string, ToolHandler> = {
-  github: githubTool,
-  // future: supabase, vercel, figma, notion, ...
+  github:   githubTool,
+  supabase: supabaseTool,
+  vercel:   vercelTool,
 }
 
 export function listRegisteredTools(): string[] {
@@ -19,7 +24,7 @@ export function describeTool(name: string): { actions: ToolActionDescription[] }
 }
 
 // ─────────────────────────────────────────────────
-// Execute a single tool call against the user's stored config
+// Execute a tool call (with permission + decryption)
 // ─────────────────────────────────────────────────
 export async function executeToolCall(
   call: ToolCall,
@@ -33,20 +38,34 @@ export async function executeToolCall(
     const handler = TOOL_REGISTRY[call.tool]
     if (!handler) throw new Error(`未注册的工具：${call.tool}`)
 
-    // Load user's connected integration
-    const { data: integration, error } = await supabase
-      .from('tool_integrations')
-      .select('config, auth_status, is_active')
-      .eq('user_id', userId)
-      .eq('tool_name', call.tool)
-      .maybeSingle()
+    // Pure-local actions don't need integration row
+    const isPureLocal = call.tool === 'supabase' && ['createMigrationFile', 'validateSql'].includes(call.action)
 
-    if (error) throw new Error(`读取工具配置失败：${error.message}`)
-    if (!integration) throw new Error(`工具 ${call.tool} 尚未连接，请先在 /tools 配置`)
-    if (integration.auth_status !== 'connected') throw new Error(`工具 ${call.tool} 未处于 connected 状态`)
-    if (!integration.is_active) throw new Error(`工具 ${call.tool} 已停用`)
+    let decryptedConfig: Record<string, unknown> = {}
 
-    const result = await handler.execute(call.action, call.params, integration.config ?? {})
+    if (!isPureLocal) {
+      const { data: integration, error } = await supabase
+        .from('tool_integrations')
+        .select('config, auth_status, is_active')
+        .eq('user_id', userId)
+        .eq('tool_name', call.tool)
+        .maybeSingle()
+
+      if (error) throw new Error(`读取工具配置失败：${error.message}`)
+      if (!integration) throw new Error(`工具 ${call.tool} 尚未连接，请先在 /tools 配置`)
+      if (integration.auth_status !== 'connected') throw new Error(`工具 ${call.tool} 未处于 connected 状态`)
+      if (!integration.is_active) throw new Error(`工具 ${call.tool} 已停用`)
+
+      // Decrypt secrets at the moment of execution; never persist plaintext
+      decryptedConfig = decryptSecretFields((integration.config ?? {}) as Record<string, unknown>)
+    }
+
+    const result = await handler.execute(call.action, call.params, decryptedConfig)
+
+    logger.info('tool.exec.ok', {
+      user_id: userId, tool: call.tool, action: call.action,
+      duration_ms: Date.now() - start,
+    })
 
     return {
       tool: call.tool,
@@ -58,12 +77,17 @@ export async function executeToolCall(
       executed_at,
     }
   } catch (e) {
+    const err = e instanceof Error ? e.message : String(e)
+    logger.warn('tool.exec.fail', {
+      user_id: userId, tool: call.tool, action: call.action,
+      duration_ms: Date.now() - start, error_message: err,
+    })
     return {
       tool: call.tool,
       action: call.action,
       params: call.params,
       status: 'error',
-      error: e instanceof Error ? e.message : String(e),
+      error: err,
       duration_ms: Date.now() - start,
       executed_at,
     }
@@ -71,7 +95,7 @@ export async function executeToolCall(
 }
 
 // ─────────────────────────────────────────────────
-// Helpers used by the run pipeline
+// Helper for run pipeline
 // ─────────────────────────────────────────────────
 export async function getUserConnectedTools(
   userId: string,
