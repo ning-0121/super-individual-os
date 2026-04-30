@@ -3,7 +3,7 @@ import { useEffect, useState, use } from 'react'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import Sidebar from '@/components/layout/Sidebar'
-import { LayoutDashboard, MessageSquare, CheckSquare, Activity, Package, Wrench, Brain, FileText, Sparkles, ArrowLeft, ChevronRight } from 'lucide-react'
+import { LayoutDashboard, MessageSquare, CheckSquare, Activity, Package, Wrench, Brain, FileText, Sparkles, ArrowLeft, ChevronRight, Milestone } from 'lucide-react'
 
 interface Project {
   id: string
@@ -12,10 +12,14 @@ interface Project {
   goal_statement: string
   description: string
   plan_generated: boolean
+  current_stage?: number
 }
+
+interface StageDefMinimal { id: number; name_zh: string }
 
 const TABS = [
   { key: 'overview',  href: '',           label: 'Overview',  icon: LayoutDashboard },
+  { key: 'stage',     href: '/stage',     label: 'Stage',     icon: Milestone },
   { key: 'chat',      href: '/chat',      label: 'Chat',      icon: MessageSquare },
   { key: 'tasks',     href: '/tasks',     label: 'Tasks',     icon: CheckSquare },
   { key: 'runs',      href: '/runs',      label: 'Runs',      icon: Activity },
@@ -31,14 +35,21 @@ export default function ProjectWorkspaceLayout({
 }: { children: React.ReactNode; params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const pathname = usePathname()
-  const [project, setProject] = useState<Project | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [project, setProject]       = useState<Project | null>(null)
+  const [stageDef, setStageDef]     = useState<StageDefMinimal | null>(null)
+  const [loading, setLoading]       = useState(true)
 
   useEffect(() => {
-    fetch(`/api/projects/${id}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(setProject)
-      .finally(() => setLoading(false))
+    Promise.all([
+      fetch(`/api/projects/${id}`).then(r => r.ok ? r.json() : null),
+      fetch(`/api/projects/${id}/stage`).then(r => r.ok ? r.json() : null),
+    ]).then(([p, s]) => {
+      setProject(p)
+      if (p && s?.stages) {
+        const def = (s.stages as StageDefMinimal[]).find(st => st.id === p.current_stage)
+        setStageDef(def ?? null)
+      }
+    }).finally(() => setLoading(false))
   }, [id])
 
   // Determine active tab from pathname suffix
@@ -72,12 +83,22 @@ export default function ProjectWorkspaceLayout({
                 <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{project.goal_statement}</p>
               )}
             </div>
-            {project && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded font-mono uppercase"
-                style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--accent-light)', border: '1px solid var(--border-strong)' }}>
-                {project.status}
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {project?.current_stage && stageDef && (
+                <Link href={`/projects/${id}/stage`}
+                  className="flex items-center gap-1.5 text-[10px] px-2 py-1 rounded transition-colors"
+                  style={{ background: 'rgba(244,114,182,0.12)', color: '#f472b6', border: '1px solid rgba(244,114,182,0.3)' }}>
+                  <Milestone size={10} />
+                  Stage {project.current_stage}: {stageDef.name_zh}
+                </Link>
+              )}
+              {project && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded font-mono uppercase"
+                  style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--accent-light)', border: '1px solid var(--border-strong)' }}>
+                  {project.status}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 

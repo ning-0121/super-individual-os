@@ -1,10 +1,10 @@
 'use client'
 import { useEffect, useState, use } from 'react'
 import Link from 'next/link'
-import { Loader2, MessageSquare, CheckSquare, Activity, Package, Target, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Loader2, MessageSquare, CheckSquare, Activity, Package, Target, AlertTriangle, CheckCircle2, Milestone, ArrowRight } from 'lucide-react'
 
 interface ReportData {
-  project: { id: string; name: string; goal_statement: string; description: string; status: string; plan_generated: boolean }
+  project: { id: string; name: string; goal_statement: string; description: string; status: string; plan_generated: boolean; current_stage?: number }
   stats: {
     total_tasks: number; completed: number; in_progress: number;
     blocked: number; revision_required: number;
@@ -15,16 +15,27 @@ interface ReportData {
   generated_at: string
 }
 
+interface StageInfo {
+  current_stage: number
+  total_stages: number
+  stages: Array<{ id: number; name_zh: string; short: string; goal: string }>
+  gate: { can_advance: boolean; blockers: string[]; warnings: string[] }
+}
+
 export default function ProjectOverviewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const [data, setData] = useState<ReportData | null>(null)
+  const [stage, setStage] = useState<StageInfo | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch(`/api/projects/${id}/report`)
-      .then(r => r.ok ? r.json() : null)
-      .then(setData)
-      .finally(() => setLoading(false))
+    Promise.all([
+      fetch(`/api/projects/${id}/report`).then(r => r.ok ? r.json() : null),
+      fetch(`/api/projects/${id}/stage`).then(r => r.ok ? r.json() : null),
+    ]).then(([rep, stg]) => {
+      setData(rep)
+      setStage(stg)
+    }).finally(() => setLoading(false))
   }, [id])
 
   if (loading) return <Loader />
@@ -32,8 +43,49 @@ export default function ProjectOverviewPage({ params }: { params: Promise<{ id: 
 
   const { stats } = data
 
+  const currentStageDef = stage?.stages.find(s => s.id === stage.current_stage)
+
   return (
     <div className="p-6 max-w-5xl">
+
+      {/* Stage Hero (V1.9) */}
+      {stage && currentStageDef && (
+        <Link href={`/projects/${id}/stage`} className="block glass glass-hover rounded-xl p-5 mb-4 transition-all"
+          style={{ border: '1px solid rgba(244,114,182,0.25)' }}>
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-full flex items-center justify-center text-base font-mono font-bold shrink-0"
+              style={{ background: 'rgba(244,114,182,0.15)', color: '#f472b6', border: '2px solid rgba(244,114,182,0.4)' }}>
+              {stage.current_stage}
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <Milestone size={11} className="text-pink-400" />
+                <p className="text-[10px] uppercase tracking-widest text-pink-400">
+                  Stage {stage.current_stage} / {stage.total_stages}
+                </p>
+              </div>
+              <h2 className="text-base font-semibold mb-0.5" style={{ color: 'var(--text-primary)' }}>{currentStageDef.name_zh}</h2>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{currentStageDef.short} · {currentStageDef.goal}</p>
+              <div className="mt-2 h-1 bg-[var(--bg-base)] rounded-full overflow-hidden">
+                <div className="h-full rounded-full transition-all"
+                  style={{ width: `${(stage.current_stage / stage.total_stages) * 100}%`, background: 'linear-gradient(90deg, #f472b6, #6366f1)' }} />
+              </div>
+            </div>
+            <div className="flex flex-col items-end gap-1">
+              {stage.gate.can_advance ? (
+                <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+                  <CheckCircle2 size={10} /> 可推进
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-[10px] text-amber-400">
+                  <AlertTriangle size={10} /> 闸门未通过
+                </span>
+              )}
+              <ArrowRight size={12} style={{ color: 'var(--text-muted)' }} />
+            </div>
+          </div>
+        </Link>
+      )}
 
       {/* Quick links */}
       <div className="grid grid-cols-4 gap-3 mb-6">

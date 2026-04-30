@@ -113,6 +113,10 @@ export interface Project {
   goal_statement: string
   plan_generated: boolean
   owner_unit_id: string | null
+  // V1.9 — Stage Engine
+  current_stage?: number
+  stage_history?: Array<{ from: number; to: number; outcome: string; ts: string; note?: string }>
+  stage_metadata?: Record<string, unknown>
   created_at: string
   updated_at: string
 }

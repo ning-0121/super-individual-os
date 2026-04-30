@@ -4,6 +4,7 @@ import { buildSystemPrompt, AIMode } from '@/lib/claude'
 import { buildContext } from '@/lib/ai/context-engine'
 import { runDecisionEngine } from '@/lib/ai/decision-engine'
 import { logDecision, extractActionItems, getLearningInsights } from '@/lib/ai/learning-loop'
+import { buildStageContextForLLM } from '@/lib/stages/engine'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -52,12 +53,23 @@ export async function POST(req: Request) {
         ? (mode as AIMode)
         : 'ceo'
 
-  // 3. Build enhanced system prompt, injecting learning insights
+  // 3. Build enhanced system prompt, injecting learning insights + stage context
   const insights = await getLearningInsights(supabase, user.id)
   const learningBlock = insights.totalDecisions > 0
     ? `\n## 学习记录（你过去给出建议的统计）\n- 历史决策次数：${insights.totalDecisions}\n- 用户认可率：${insights.helpfulRate}%\n- 最常用模式：${insights.topMode.toUpperCase()}\n${insights.topRisk ? `- 用户高频风险：${insights.topRisk}（请在本次回答中特别关注）` : ''}\n- 待执行行动项：${insights.actionsPending} 个（避免给出太多新行动项，帮用户聚焦）\n`
     : ''
-  const systemPrompt = buildSystemPrompt(effectiveMode, contextPrompt + learningBlock, signal)
+
+  // V1.9: stage-aware Linda — when projectId given, inject current stage context
+  let stageBlock = ''
+  if (projectId) {
+    const { data: proj } = await supabase
+      .from('projects').select('current_stage').eq('id', projectId).eq('user_id', user.id).single()
+    if (proj?.current_stage) {
+      stageBlock = buildStageContextForLLM(proj.current_stage as number)
+    }
+  }
+
+  const systemPrompt = buildSystemPrompt(effectiveMode, contextPrompt + learningBlock + stageBlock, signal)
 
   // 4. Save user message
   if (conversationId) {
