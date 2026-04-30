@@ -3,6 +3,8 @@ import { runAgentLoop, runQAEvaluation, type ProjectContext, type AgentEvaluatio
 import { getUserConnectedTools } from '@/lib/tools/router'
 import { extractAndSaveArtifacts } from '@/lib/ai/artifact-extractor'
 import { logger } from '@/lib/observability'
+import { audit } from '@/lib/audit'
+import { reportError } from '@/lib/error-reporter'
 import type { ExecutionUnit, Task, TaskType } from '@/types'
 
 const QA_TRIGGER_TYPES: TaskType[] = ['engineering', 'feature', 'content', 'design', 'research', 'analysis']
@@ -153,6 +155,10 @@ export async function executeTaskRun(params: {
   // Run multi-step loop
   const runStart = Date.now()
   logger.info('run.start', { user_id: userId, task_id: taskId, task_run_id: taskRun.id, agent_id: a.id, agent_name: a.name, retry_count: retryCount })
+  await audit(supabase, userId, retryCount > 0 ? 'task_run.retry' : 'task_run.start', {
+    resource_type: 'task_run', resource_id: taskRun.id,
+    metadata: { task_id: taskId, agent_id: a.id, agent_name: a.name, retry_count: retryCount },
+  })
 
   let primaryResult
   try {
@@ -162,10 +168,17 @@ export async function executeTaskRun(params: {
     })
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e)
+    reportError(e, {
+      user_id: userId, task_id: taskId, task_run_id: taskRun.id, agent_id: a.id,
+    })
     logger.error('run.fail', {
       user_id: userId, task_id: taskId, task_run_id: taskRun.id, agent_id: a.id,
       duration_ms: Date.now() - runStart, retry_count: retryCount,
       error_message: errMsg,
+    })
+    await audit(supabase, userId, 'task_run.failed', {
+      resource_type: 'task_run', resource_id: taskRun.id,
+      metadata: { error_message: errMsg, retry_count: retryCount, duration_ms: Date.now() - runStart },
     })
 
     await supabase.from('task_runs').update({
@@ -239,6 +252,15 @@ export async function executeTaskRun(params: {
     total_steps: primaryResult.total_steps,
     tool_success_count, tool_error_count,
     qa_verdict: evaluation?.verdict ?? null,
+  })
+  await audit(supabase, userId, 'task_run.succeeded', {
+    resource_type: 'task_run', resource_id: taskRun.id,
+    metadata: {
+      duration_ms: execution_duration_ms,
+      total_steps: primaryResult.total_steps,
+      tool_success_count, tool_error_count,
+      qa_verdict: evaluation?.verdict ?? null,
+    },
   })
 
   await supabase.from('task_runs').update({

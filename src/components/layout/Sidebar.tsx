@@ -4,7 +4,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
   LayoutDashboard, MessageSquare, FolderOpen, CheckSquare,
-  Brain, Bot, Layers, ClipboardCheck, Wrench, LogOut,
+  Brain, Bot, Layers, ClipboardCheck, Wrench, LogOut, ShieldCheck,
 } from 'lucide-react'
 
 const nav = [
@@ -28,8 +28,9 @@ const nav = [
   {
     group: 'System',
     items: [
-      { href: '/tools',           label: 'Tools',           icon: Wrench },
-      { href: '/settings',        label: 'Second Brain',    icon: Brain },
+      { href: '/tools',             label: 'Tools',           icon: Wrench },
+      { href: '/system-readiness',  label: 'Beta Readiness',  icon: ShieldCheck },
+      { href: '/settings',          label: 'Second Brain',    icon: Brain },
     ],
   },
 ]

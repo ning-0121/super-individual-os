@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { audit } from '@/lib/audit'
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const supabase = await createClient()
@@ -33,6 +34,11 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     workflow_status: 'assigned',
     status: 'todo',
   }).eq('id', run.task_id)
+
+  await audit(supabase, user.id, 'task_run.cancelled', {
+    resource_type: 'task_run', resource_id: id,
+    metadata: { task_id: run.task_id },
+  })
 
   return Response.json({ ok: true })
 }

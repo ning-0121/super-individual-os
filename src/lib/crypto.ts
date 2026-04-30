@@ -82,6 +82,50 @@ export function decryptSecretFields(config: Record<string, unknown>): Record<str
   return out
 }
 
+// ─────────────────────────────────────────────────
+// V1.6: Environment guard + key version awareness
+// ─────────────────────────────────────────────────
+export type EncryptionKeyStatus = 'production-secure' | 'dev-fallback' | 'invalid'
+
+export function getEncryptionKeyStatus(): { status: EncryptionKeyStatus; message: string } {
+  const k = process.env.ENCRYPTION_KEY
+  const isValid = !!k && /^[0-9a-f]{64}$/i.test(k)
+
+  if (isValid) {
+    return { status: 'production-secure', message: 'ENCRYPTION_KEY 已配置（32 字节 hex），密钥强度合格' }
+  }
+  if (process.env.NODE_ENV === 'production') {
+    return {
+      status: 'invalid',
+      message: 'production 环境缺少有效 ENCRYPTION_KEY — 敏感工具连接已禁用。请运行 openssl rand -hex 32 生成密钥后设置环境变量',
+    }
+  }
+  return {
+    status: 'dev-fallback',
+    message: '使用开发回退密钥（仅本地开发可用）— 部署到生产前必须设置 ENCRYPTION_KEY',
+  }
+}
+
+/**
+ * Throw if production environment is not safe for sensitive ops.
+ * Call this in API endpoints that store secrets.
+ */
+export function assertProductionSafeKey(): void {
+  const s = getEncryptionKeyStatus()
+  if (s.status === 'invalid') {
+    throw Object.assign(new Error(s.message), { code: 'encryption_key_missing', status: 503 })
+  }
+}
+
+/** Active key version used by all new encryptions. Updated when rotating. */
+export const ACTIVE_KEY_VERSION = 'v1' as const
+
+export function getKeyVersion(value: string): string | null {
+  if (!isEncrypted(value)) return null
+  const m = value.match(/^enc:(v\d+):/)
+  return m ? m[1] : null
+}
+
 export function maskSecretFields(config: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(config)) {

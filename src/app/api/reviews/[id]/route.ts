@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { audit, type AuditEvent } from '@/lib/audit'
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const supabase = await createClient()
@@ -50,6 +51,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     if (Object.keys(taskUpdates).length > 1) {
       await supabase.from('tasks').update(taskUpdates).eq('id', existing.task_id)
+    }
+
+    // V1.6 audit
+    const eventMap: Record<string, AuditEvent | null> = {
+      approved: 'review.approved',
+      revision_required: 'review.revision_required',
+      rejected: 'review.rejected',
+    }
+    const evt = eventMap[newStatus]
+    if (evt) {
+      await audit(supabase, user.id, evt, {
+        resource_type: 'task_review', resource_id: id,
+        metadata: { task_id: existing.task_id, score: body.score, comments: body.comments },
+      })
     }
   }
 
