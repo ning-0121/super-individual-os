@@ -1,10 +1,11 @@
 'use client'
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
   LayoutDashboard, MessageSquare, FolderOpen, CheckSquare,
-  Brain, Bot, Layers, ClipboardCheck, Wrench, LogOut, ShieldCheck,
+  Brain, Bot, Layers, ClipboardCheck, Wrench, LogOut, ShieldCheck, Eye,
 } from 'lucide-react'
 
 const nav = [
@@ -38,6 +39,14 @@ const nav = [
 export default function Sidebar() {
   const pathname = usePathname()
   const router   = useRouter()
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/admin/check')
+      .then(r => r.ok ? r.json() : { is_admin: false })
+      .then(d => setIsAdmin(!!d.is_admin))
+      .catch(() => {})
+  }, [])
 
   async function logout() {
     await createClient().auth.signOut()
@@ -53,7 +62,10 @@ export default function Sidebar() {
       </div>
 
       <nav className="flex-1 overflow-auto space-y-4">
-        {nav.map(group => (
+        {nav.concat(isAdmin ? [{
+          group: 'Admin',
+          items: [{ href: '/admin/runs', label: 'All Runs', icon: Eye }],
+        }] : []).map(group => (
           <div key={group.group}>
             <p className="text-[9px] font-semibold uppercase tracking-widest px-3 mb-1"
               style={{ color: 'var(--text-muted)', opacity: 0.6 }}>

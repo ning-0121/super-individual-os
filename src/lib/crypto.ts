@@ -24,26 +24,37 @@ function getKey(): Buffer {
   return cachedKey
 }
 
-export function encryptSecret(plaintext: string): string {
+// ─────────────────────────────────────────────────
+// Key-injectable internals (used by rotation script)
+// ─────────────────────────────────────────────────
+export function encryptWithKey(plaintext: string, key: Buffer): string {
   if (!plaintext) return ''
-  if (isEncrypted(plaintext)) return plaintext   // idempotent
+  if (isEncrypted(plaintext)) return plaintext
   const iv = crypto.randomBytes(12)
-  const cipher = crypto.createCipheriv(ALGO, getKey(), iv)
+  const cipher = crypto.createCipheriv(ALGO, key, iv)
   const ct = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()])
   const tag = cipher.getAuthTag()
   return PREFIX + iv.toString('hex') + ':' + tag.toString('hex') + ':' + ct.toString('hex')
 }
 
-export function decryptSecret(value: string): string {
+export function decryptWithKey(value: string, key: Buffer): string {
   if (!value) return ''
-  if (!isEncrypted(value)) return value          // legacy plaintext passthrough
+  if (!isEncrypted(value)) return value
   const parts = value.slice(PREFIX.length).split(':')
   if (parts.length !== 3) throw new Error('Malformed encrypted value')
   const [ivHex, tagHex, ctHex] = parts
-  const decipher = crypto.createDecipheriv(ALGO, getKey(), Buffer.from(ivHex, 'hex'))
+  const decipher = crypto.createDecipheriv(ALGO, key, Buffer.from(ivHex, 'hex'))
   decipher.setAuthTag(Buffer.from(tagHex, 'hex'))
   const plain = Buffer.concat([decipher.update(Buffer.from(ctHex, 'hex')), decipher.final()])
   return plain.toString('utf8')
+}
+
+export function encryptSecret(plaintext: string): string {
+  return encryptWithKey(plaintext, getKey())
+}
+
+export function decryptSecret(value: string): string {
+  return decryptWithKey(value, getKey())
 }
 
 export function isEncrypted(value: unknown): value is string {

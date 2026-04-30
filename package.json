@@ -9,7 +9,9 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "rotate-key": "node scripts/rotate-encryption-key.mjs",
+    "rotate-key:dry": "node scripts/rotate-encryption-key.mjs --dry-run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",

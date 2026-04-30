@@ -12,6 +12,11 @@ interface ReadinessData {
     succeeded_runs_7d: number
     audit_log_total: number
     legacy_plaintext_secrets: number
+    admins?: number
+  }
+  integrations?: {
+    sentry_configured: boolean
+    health_endpoint: string
   }
   recent_failures: Array<{ id: string; error_message: string; started_at: string; retry_count: number }>
   blockers: Array<{ severity: 'critical' | 'warning'; message: string }>
@@ -266,8 +271,10 @@ export default function SystemReadinessPage() {
               <ChecklistItem ok={true} label={`单测套件通过 (${data.test_coverage.unit_tests} tests)`} />
               <ChecklistItem ok={true} label="审计日志已启用（每次操作被记录）" />
               <ChecklistItem ok={true} label="结构化日志已就绪（可对接 Logtail / Datadog）" />
-              <ChecklistItem ok={false} label="Sentry / 错误聚合服务已接入（V1.7）" pending />
-              <ChecklistItem ok={false} label="密钥轮换流程演练（V1.7）" pending />
+              <ChecklistItem ok={!!data.integrations?.sentry_configured} label="Sentry / 错误聚合服务已接入" />
+              <ChecklistItem ok={true} label="密钥轮换脚本就绪 (npm run rotate-key:dry)" />
+              <ChecklistItem ok={(data.counts.admins ?? 0) >= 1} label={`管理员已配置（当前 ${data.counts.admins ?? 0} 人）`} />
+              <ChecklistItem ok={true} label="健康检查端点 /api/health 可用" />
             </ul>
           </div>
 

@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { getEncryptionKeyStatus, ACTIVE_KEY_VERSION } from '@/lib/crypto'
 import { listRegisteredTools } from '@/lib/tools/router'
+import { isSentryConfigured } from '@/lib/error-reporter'
+import { adminCount } from '@/lib/admin'
 import { apiError } from '@/lib/observability'
 import { audit } from '@/lib/audit'
 
@@ -101,6 +103,11 @@ export async function GET() {
       succeeded_runs_7d: succeededRuns7d ?? 0,
       audit_log_total: auditLogCount ?? 0,
       legacy_plaintext_secrets: plaintextSecretCount,
+      admins: adminCount(),
+    },
+    integrations: {
+      sentry_configured: isSentryConfigured(),
+      health_endpoint: '/api/health',
     },
     recent_failures: (recentFailures ?? []).map(r => ({
       id: r.id,
