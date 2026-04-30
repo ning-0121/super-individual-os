@@ -235,7 +235,7 @@ export default function AgentsPage() {
 
                     {/* Tools */}
                     {agent.tools_allowed?.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
+                      <div className="flex flex-wrap gap-1 mb-3">
                         {(agent.tools_allowed as string[]).map(t => (
                           <span key={t} className="text-[9px] px-1.5 py-0.5 rounded font-mono"
                             style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid var(--border)', color: 'var(--accent-light)' }}>
@@ -244,6 +244,38 @@ export default function AgentsPage() {
                         ))}
                       </div>
                     )}
+
+                    {/* Performance stats */}
+                    {(() => {
+                      const s = (agent as ExecutionUnit & { stats?: { total_runs: number; approved_count: number; revision_count: number; failed_count: number; approval_rate: number; average_score: number } }).stats
+                      if (!s || s.total_runs === 0) return (
+                        <div className="text-[9px] pt-2" style={{ color: 'var(--text-muted)', borderTop: '1px solid var(--border)' }}>
+                          暂无执行记录
+                        </div>
+                      )
+                      return (
+                        <div className="grid grid-cols-3 gap-1 pt-2.5 mt-1" style={{ borderTop: '1px solid var(--border)' }}>
+                          <div>
+                            <p className="text-[8px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>运行</p>
+                            <p className="text-xs font-mono" style={{ color: 'var(--text-primary)' }}>{s.total_runs}</p>
+                          </div>
+                          <div>
+                            <p className="text-[8px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>通过率</p>
+                            <p className="text-xs font-mono text-emerald-400">{s.approval_rate}%</p>
+                          </div>
+                          <div>
+                            <p className="text-[8px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>评分</p>
+                            <p className="text-xs font-mono text-amber-400">{s.average_score > 0 ? s.average_score : '—'}</p>
+                          </div>
+                          {s.revision_count > 0 && (
+                            <p className="col-span-3 text-[9px] mt-1 text-amber-400">⚠ {s.revision_count} 次返工</p>
+                          )}
+                          {s.failed_count > 0 && (
+                            <p className="col-span-3 text-[9px] mt-1 text-red-400">✕ {s.failed_count} 次失败</p>
+                          )}
+                        </div>
+                      )
+                    })()}
                   </div>
                 )
               })}

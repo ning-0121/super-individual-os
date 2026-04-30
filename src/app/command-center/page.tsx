@@ -4,7 +4,8 @@ import Sidebar from '@/components/layout/Sidebar'
 import { Project, Task, ExecutionUnit, WorkflowStatus, AgentType } from '@/types'
 import { getProjects } from '@/services/projects'
 import { AGENT_TYPE_META } from '@/services/agents'
-import { Plus, Zap, ChevronDown, ChevronRight, AlertTriangle, CheckCircle2, Clock, Loader2, RefreshCw, Target, Users } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Plus, Zap, ChevronDown, ChevronRight, AlertTriangle, CheckCircle2, Clock, Loader2, RefreshCw, Target, Users, Play, ExternalLink } from 'lucide-react'
 
 const WORKFLOW_META: Record<WorkflowStatus, { label: string; color: string; dot: string }> = {
   draft:             { label: '草稿',   color: 'text-slate-400',   dot: 'bg-slate-500' },
@@ -25,6 +26,7 @@ const PRIORITY_COLOR: Record<string, string> = {
 }
 
 export default function CommandCenterPage() {
+  const router = useRouter()
   const [projects, setProjects]     = useState<Project[]>([])
   const [tasks, setTasks]           = useState<Record<string, Task[]>>({})
   const [agents, setAgents]         = useState<ExecutionUnit[]>([])
@@ -76,6 +78,33 @@ export default function CommandCenterPage() {
       setProjects(prev => prev.map(p => p.id === projectId ? { ...p, plan_generated: true, goal_statement: goal } : p))
     }
     setGenerating(null); setShowGoalInput(null); setGoal('')
+  }
+
+  async function runAgent(taskId: string, projectId: string) {
+    setUpdatingTask(taskId)
+    setTasks(prev => ({
+      ...prev,
+      [projectId]: (prev[projectId] ?? []).map(t => t.id === taskId ? { ...t, workflow_status: 'running' as WorkflowStatus } : t),
+    }))
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/run`, { method: 'POST' })
+      const data = await res.json()
+      if (data.task_run_id) {
+        router.push(`/task-runs/${data.task_run_id}`)
+      } else if (data.error) {
+        alert('运行失败：' + data.error)
+        // Refresh task state
+        setTasks(prev => {
+          const next = { ...prev }
+          delete next[projectId]
+          return next
+        })
+        loadProjectTasks(projectId)
+      }
+    } catch (e) {
+      alert('运行失败：' + (e instanceof Error ? e.message : '未知错误'))
+    }
+    setUpdatingTask(null)
   }
 
   async function updateWorkflowStatus(taskId: string, newStatus: WorkflowStatus, projectId: string) {
@@ -251,6 +280,7 @@ export default function CommandCenterPage() {
                         return next
                       })}
                       onUpdateStatus={(taskId, status) => updateWorkflowStatus(taskId, status, activeProject!)}
+                      onRunAgent={(taskId) => runAgent(taskId, activeProject!)}
                       updatingId={updatingTask}
                     />
                   ))}
@@ -264,13 +294,14 @@ export default function CommandCenterPage() {
   )
 }
 
-function TaskTreeNode({ task, subtasks, agents, expanded, onToggle, onUpdateStatus, updatingId, depth = 0 }: {
+function TaskTreeNode({ task, subtasks, agents, expanded, onToggle, onUpdateStatus, onRunAgent, updatingId, depth = 0 }: {
   task: Task
   subtasks: Task[]
   agents: ExecutionUnit[]
   expanded: Set<string>
   onToggle: (id: string) => void
   onUpdateStatus: (taskId: string, status: WorkflowStatus) => void
+  onRunAgent: (taskId: string) => void
   updatingId: string | null
   depth?: number
 }) {
@@ -348,6 +379,38 @@ function TaskTreeNode({ task, subtasks, agents, expanded, onToggle, onUpdateStat
                 </span>
               )}
 
+              {/* Run Agent button — for AI/agent units in actionable states */}
+              {agent && agent.type !== 'human' && ['planned','assigned','revision_required','draft'].includes(task.workflow_status ?? 'draft') && (
+                <button onClick={() => onRunAgent(task.id)}
+                  disabled={updatingId === task.id}
+                  className="ml-auto flex items-center gap-1 text-[9px] px-2 py-0.5 rounded transition-all disabled:opacity-40"
+                  style={{
+                    background: 'rgba(99,102,241,0.15)',
+                    border: '1px solid var(--border-strong)',
+                    color: 'var(--accent-light)',
+                  }}>
+                  {updatingId === task.id ? <Loader2 size={9} className="animate-spin" /> : <Play size={9} />}
+                  运行 Agent
+                </button>
+              )}
+
+              {/* View result for submitted/under_review/completed */}
+              {['submitted','under_review','revision_required','approved','completed'].includes(task.workflow_status ?? '') && (
+                <a href={`/task-runs?task=${task.id}`}
+                  onClick={async (e) => {
+                    e.preventDefault()
+                    const res = await fetch(`/api/task-runs?taskId=${task.id}`)
+                    const runs = await res.json().catch(() => [])
+                    if (Array.isArray(runs) && runs.length > 0) {
+                      window.location.href = `/task-runs/${runs[0].id}`
+                    }
+                  }}
+                  className="flex items-center gap-1 text-[9px] px-2 py-0.5 rounded transition-colors"
+                  style={{ border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                  <ExternalLink size={9} /> 查看结果
+                </a>
+              )}
+
               {/* Status transitions */}
               {nextStatuses.length > 0 && (
                 <div className="flex gap-1 ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
@@ -380,7 +443,7 @@ function TaskTreeNode({ task, subtasks, agents, expanded, onToggle, onUpdateStat
           <TaskTreeNode
             task={sub} subtasks={[]} agents={agents}
             expanded={expanded} onToggle={onToggle}
-            onUpdateStatus={onUpdateStatus} updatingId={updatingId}
+            onUpdateStatus={onUpdateStatus} onRunAgent={onRunAgent} updatingId={updatingId}
             depth={depth + 1}
           />
         </div>
