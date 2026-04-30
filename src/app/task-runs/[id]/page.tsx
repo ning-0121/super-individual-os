@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown'
 import Sidebar from '@/components/layout/Sidebar'
 import { TaskRun, Task, ExecutionUnit, TaskReview } from '@/types'
 import { AGENT_TYPE_META } from '@/services/agents'
-import { ArrowLeft, CheckCircle2, RotateCcw, Clock, Loader2, AlertTriangle, Lightbulb, Brain, FileText, Target, Wrench, ExternalLink, GitBranch } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, RotateCcw, Clock, Loader2, AlertTriangle, Lightbulb, Brain, FileText, Target, Wrench, ExternalLink, GitBranch, Activity, ChevronRight, ShieldCheck, XOctagon } from 'lucide-react'
 
 const RUN_STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   pending:    { label: '待运行', color: '#94a3b8', bg: 'rgba(148,163,184,0.1)' },
@@ -95,7 +95,32 @@ export default function TaskRunDetailPage({ params }: { params: Promise<{ id: st
   const agentMeta = agent ? (AGENT_TYPE_META[agent.agent_type] ?? AGENT_TYPE_META.general) : null
   const pendingReview = reviews.find(r => r.review_status === 'pending')
   const completedReviews = reviews.filter(r => r.review_status !== 'pending')
-  const output = (run.output_payload ?? {}) as { summary?: string; output?: string; risks?: string[]; next_steps?: string[] }
+  const output = (run.output_payload ?? {}) as {
+    summary?: string
+    output?: string                      // legacy V1.1
+    final_output?: string                // V1.3
+    risks?: string[]
+    next_steps?: string[]
+    intermediate_steps?: Array<{
+      step: number
+      thinking: string
+      tool_calls: Array<Record<string, unknown>>
+      output_preview: string
+      is_final: boolean
+      duration_ms: number
+    }>
+    total_steps?: number
+    evaluation?: {
+      verdict: 'approved' | 'revision_required' | 'rejected'
+      score: number
+      strengths: string[]
+      issues: string[]
+      suggestions: string[]
+      evaluator_unit_id: string
+      evaluator_name: string
+    } | null
+  }
+  const finalOutput = output.final_output ?? output.output ?? ''
 
   const startedAt = run.started_at ? new Date(run.started_at).toLocaleString('zh-CN') : '—'
   const finishedAt = run.finished_at ? new Date(run.finished_at).toLocaleString('zh-CN') : '—'
@@ -212,15 +237,125 @@ export default function TaskRunDetailPage({ params }: { params: Promise<{ id: st
                 </div>
               )}
 
-              {/* Output */}
-              {output.output && (
+              {/* Step Timeline (V1.3) */}
+              {Array.isArray(output.intermediate_steps) && output.intermediate_steps.length > 0 && (
+                <div className="glass rounded-xl p-5 mb-4">
+                  <div className="flex items-center gap-2 mb-4 text-amber-400">
+                    <Activity size={13} />
+                    <span className="text-xs font-semibold uppercase tracking-wider">执行时间线</span>
+                    <span className="text-[10px] ml-1" style={{ color: 'var(--text-muted)' }}>
+                      共 {output.total_steps ?? output.intermediate_steps.length} 步
+                    </span>
+                  </div>
+
+                  <div className="relative">
+                    {/* Vertical line */}
+                    <div className="absolute left-3 top-2 bottom-2 w-px"
+                      style={{ background: 'var(--border)' }} />
+
+                    {output.intermediate_steps.map((step, idx) => {
+                      const isLast = idx === (output.intermediate_steps?.length ?? 0) - 1
+                      const stepToolCalls = (step.tool_calls ?? []) as Array<Record<string, unknown>>
+
+                      return (
+                        <div key={idx} className="relative flex gap-3 pb-4" style={{ marginBottom: isLast ? 0 : '0' }}>
+                          {/* Dot */}
+                          <div className="relative z-10 shrink-0">
+                            <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-mono font-bold"
+                              style={{
+                                background: step.is_final ? 'rgba(52,211,153,0.2)' : 'rgba(251,191,36,0.15)',
+                                border: `1px solid ${step.is_final ? '#34d399' : '#fbbf24'}`,
+                                color: step.is_final ? '#34d399' : '#fbbf24',
+                              }}>
+                              {step.step}
+                            </div>
+                          </div>
+
+                          {/* Step content */}
+                          <div className="flex-1 min-w-0 pt-0.5">
+                            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                              <span className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                第 {step.step} 步
+                              </span>
+                              {step.is_final && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded text-emerald-400"
+                                  style={{ background: 'rgba(52,211,153,0.12)', border: '1px solid rgba(52,211,153,0.3)' }}>
+                                  ✓ 最终
+                                </span>
+                              )}
+                              {!step.is_final && stepToolCalls.length > 0 && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded text-amber-400"
+                                  style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.25)' }}>
+                                  调用工具
+                                </span>
+                              )}
+                              <span className="text-[9px]" style={{ color: 'var(--text-muted)' }}>
+                                {step.duration_ms}ms
+                              </span>
+                            </div>
+
+                            {/* Thinking */}
+                            <div className="flex items-start gap-1.5 mb-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                              <Brain size={10} className="mt-0.5 shrink-0 text-violet-400" />
+                              <p className="leading-relaxed">{step.thinking}</p>
+                            </div>
+
+                            {/* Inline tool calls for this step */}
+                            {stepToolCalls.length > 0 && (
+                              <div className="space-y-1 ml-4">
+                                {stepToolCalls.map((tc, ti) => {
+                                  const isOk = tc.status === 'success'
+                                  const r = (tc.result ?? {}) as { pr_url?: string; pr_number?: number; issue_url?: string; issue_number?: number; files_written?: string[] }
+                                  const errStr = typeof tc.error === 'string' ? tc.error : ''
+                                  const toolName = String(tc.tool ?? '')
+                                  const actionName = String(tc.action ?? '')
+                                  return (
+                                    <div key={ti} className="flex items-center gap-2 text-[10px] flex-wrap">
+                                      <code className="font-mono px-1.5 py-0.5 rounded"
+                                        style={{
+                                          background: isOk ? 'rgba(52,211,153,0.08)' : 'rgba(248,113,113,0.08)',
+                                          color: isOk ? '#34d399' : '#f87171',
+                                          border: `1px solid ${isOk ? 'rgba(52,211,153,0.2)' : 'rgba(248,113,113,0.2)'}`,
+                                        }}>
+                                        {isOk ? '✓' : '✗'} {toolName}.{actionName}
+                                      </code>
+                                      {isOk && r.pr_url && (
+                                        <a href={r.pr_url} target="_blank" rel="noreferrer"
+                                          className="text-emerald-400 hover:underline flex items-center gap-0.5">
+                                          PR #{r.pr_number ?? '?'} <ExternalLink size={8} />
+                                        </a>
+                                      )}
+                                      {isOk && r.issue_url && (
+                                        <a href={r.issue_url} target="_blank" rel="noreferrer"
+                                          className="text-[var(--accent-light)] hover:underline flex items-center gap-0.5">
+                                          Issue #{r.issue_number ?? '?'} <ExternalLink size={8} />
+                                        </a>
+                                      )}
+                                      {!isOk && errStr && (
+                                        <span style={{ color: 'var(--text-muted)' }}>{errStr.slice(0, 80)}</span>
+                                      )}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Final Output */}
+              {finalOutput && (
                 <div className="glass rounded-xl p-5 mb-4">
                   <div className="flex items-center gap-2 mb-3 text-emerald-400">
                     <Target size={13} />
-                    <span className="text-xs font-semibold uppercase tracking-wider">交付物</span>
+                    <span className="text-xs font-semibold uppercase tracking-wider">最终交付物</span>
                   </div>
                   <div className="ai-prose">
-                    <ReactMarkdown>{output.output}</ReactMarkdown>
+                    <ReactMarkdown>{finalOutput}</ReactMarkdown>
                   </div>
                 </div>
               )}
@@ -348,6 +483,91 @@ export default function TaskRunDetailPage({ params }: { params: Promise<{ id: st
                   </div>
                 </div>
               )}
+
+              {/* QA Evaluation (V1.3) */}
+              {output.evaluation && (() => {
+                const ev = output.evaluation
+                const verdictMeta: Record<string, { label: string; color: string; bg: string; border: string; icon: typeof CheckCircle2 }> = {
+                  approved:          { label: '通过',   color: '#34d399', bg: 'rgba(52,211,153,0.08)',  border: 'rgba(52,211,153,0.3)',  icon: ShieldCheck },
+                  revision_required: { label: '需返工', color: '#fbbf24', bg: 'rgba(251,191,36,0.08)', border: 'rgba(251,191,36,0.3)', icon: RotateCcw },
+                  rejected:          { label: '拒绝',   color: '#f87171', bg: 'rgba(248,113,113,0.08)', border: 'rgba(248,113,113,0.3)', icon: XOctagon },
+                }
+                const vm = verdictMeta[ev.verdict] ?? verdictMeta.revision_required
+                const VIcon = vm.icon
+                return (
+                  <div className="glass rounded-xl p-5 mb-4" style={{ border: `1px solid ${vm.border}` }}>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2" style={{ color: vm.color }}>
+                        <VIcon size={14} />
+                        <span className="text-xs font-semibold uppercase tracking-wider">QA Agent 评估</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded ml-1"
+                          style={{ background: vm.bg, color: vm.color, border: `1px solid ${vm.border}` }}>
+                          {vm.label}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                        <span>Reviewer: <span style={{ color: 'var(--text-secondary)' }}>{ev.evaluator_name}</span></span>
+                        <span>评分: <span style={{ color: vm.color }} className="font-mono font-semibold">{ev.score}/10</span></span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      {/* Strengths */}
+                      <div>
+                        <p className="text-[10px] font-semibold mb-1.5 text-emerald-400 uppercase tracking-wider">✓ 优点</p>
+                        {ev.strengths.length > 0 ? (
+                          <ul className="space-y-1">
+                            {ev.strengths.map((s, i) => (
+                              <li key={i} className="text-[11px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>· {s}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>—</p>
+                        )}
+                      </div>
+
+                      {/* Issues */}
+                      <div>
+                        <p className="text-[10px] font-semibold mb-1.5 text-red-400 uppercase tracking-wider">⚠ 问题</p>
+                        {ev.issues.length > 0 ? (
+                          <ul className="space-y-1">
+                            {ev.issues.map((s, i) => (
+                              <li key={i} className="text-[11px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>· {s}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>—</p>
+                        )}
+                      </div>
+
+                      {/* Suggestions */}
+                      <div>
+                        <p className="text-[10px] font-semibold mb-1.5 text-cyan-400 uppercase tracking-wider">💡 改进</p>
+                        {ev.suggestions.length > 0 ? (
+                          <ul className="space-y-1">
+                            {ev.suggestions.map((s, i) => (
+                              <li key={i} className="text-[11px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>· {s}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>—</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {ev.verdict === 'approved' && (
+                      <p className="text-[10px] mt-3 pt-3 border-t" style={{ color: 'var(--text-muted)', borderColor: 'var(--border)' }}>
+                        <ChevronRight size={9} className="inline" /> 任务已自动标记为 completed（QA 通过即终审）
+                      </p>
+                    )}
+                    {ev.verdict === 'revision_required' && (
+                      <p className="text-[10px] mt-3 pt-3 border-t" style={{ color: 'var(--text-muted)', borderColor: 'var(--border)' }}>
+                        <ChevronRight size={9} className="inline" /> 任务已自动标记为 revision_required，可在 Command Center 重新运行 Agent
+                      </p>
+                    )}
+                  </div>
+                )
+              })()}
 
               {/* Risks */}
               {output.risks && output.risks.length > 0 && (
