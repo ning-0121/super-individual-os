@@ -5,10 +5,13 @@ import { ExecutionUnit, ExecutionUnitType, Capability } from '@/types'
 import { getExecutionUnits, createExecutionUnit, updateExecutionUnit, deleteExecutionUnit } from '@/services/execution-units'
 import { Plus, Bot, User, Cpu, Trash2, Edit2, X, Check } from 'lucide-react'
 
+import { Wrench } from 'lucide-react'
+
 const TYPE_META: Record<ExecutionUnitType, { label: string; color: string; icon: React.FC<{ size?: number; className?: string }> }> = {
   human: { label: '人工',   color: 'text-cyan-400',    icon: User },
   ai:    { label: 'AI 助手', color: 'text-violet-400',  icon: Bot },
   agent: { label: 'AI 智能体', color: 'text-emerald-400', icon: Cpu },
+  tool:  { label: '工具',   color: 'text-orange-400',  icon: Wrench },
 }
 
 const ALL_CAPS: { value: Capability; label: string }[] = [
