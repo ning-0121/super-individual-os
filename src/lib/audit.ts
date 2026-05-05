@@ -19,6 +19,11 @@ export type AuditEvent =
   | 'manager.created' | 'manager_decision.created'
   | 'approval.requested' | 'approval.resolved'
   | 'dispatch.blocked' | 'dispatch.approved' | 'dispatch.auto'
+  // V2.1 — Mission Control + Auto-approval
+  | 'policy.matched' | 'policy.created'
+  | 'auto_approval.granted' | 'auto_approval.rejected'
+  | 'ai_manager.decided' | 'ai_manager.unanimous_approve' | 'ai_manager.rejected'
+  | 'system.created' | 'system.linked_project'
   // Misc
   | 'auth.login_check' | 'system.readiness_view'
 

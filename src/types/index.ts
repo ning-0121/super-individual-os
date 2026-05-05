@@ -237,6 +237,70 @@ export interface Memory {
 // ── V2.0 — Manager Layer ───────────────────────────────────────────
 export type RiskLevel = 0 | 1 | 2 | 3 | 4
 
+// V2.1 — Mission Control / Automation
+export type SystemStatus = 'active' | 'paused' | 'archived'
+
+export interface System {
+  id: string
+  user_id: string
+  name: string
+  description: string
+  status: SystemStatus
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface SystemProject {
+  id: string
+  user_id: string
+  system_id: string
+  project_id: string
+  role: 'primary' | 'member'
+  created_at: string
+}
+
+export interface SystemMetric {
+  id: string
+  user_id: string
+  system_id: string
+  metric_key: string
+  metric_value: Record<string, unknown>
+  computed_at: string
+}
+
+export type PolicyType = 'auto_approve' | 'ai_manager' | 'human_required' | 'block'
+
+export interface PolicyRule {
+  match?: {
+    action_type_pattern?: string
+    risk_level_min?: number
+    risk_level_max?: number
+    agent_types?: string[]
+    tools_required_any?: string[]
+    tools_forbidden_any?: string[]
+    cost_max_usd?: number
+    risk_flags_any?: string[]
+  }
+  action: PolicyType
+  ai_manager_role?: import('@/types').ManagerRole
+  reason?: string
+}
+
+export interface ExecutionPolicy {
+  id: string
+  user_id: string
+  project_id: string | null
+  scope: 'global' | 'project' | 'manager'
+  policy_name: string
+  policy_type: PolicyType
+  rule: PolicyRule
+  priority: number
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
 export type ManagerRole =
   | 'ceo'
   | 'engineering_manager'

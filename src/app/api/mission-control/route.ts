@@ -1,0 +1,189 @@
+import { createClient } from '@/lib/supabase/server'
+import { apiError } from '@/lib/observability'
+import { listAvailableProviders } from '@/lib/ai/model-router'
+
+/**
+ * V2.1 — Mission Control aggregator
+ * Returns 6 widget payloads in one round-trip:
+ * - system_matrix
+ * - execution_pulse
+ * - risk_radar
+ * - manager_reports
+ * - ceo_decisions
+ * - auto_loop_status
+ */
+export async function GET() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return apiError('Unauthorized', { status: 401 })
+
+  const since7d  = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString()
+  const since24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
+
+  const [
+    { data: systems },
+    { data: systemProjects },
+    { data: projects },
+    { data: runs7d },
+    { data: decisions7d },
+    { data: pendingApprovals },
+    { data: managers },
+    { data: managerDecisions7d },
+    { data: auditLogs7d },
+  ] = await Promise.all([
+    supabase.from('systems').select('*').eq('user_id', user.id),
+    supabase.from('system_projects').select('system_id, project_id, role').eq('user_id', user.id),
+    supabase.from('projects').select('id, name, status, current_stage').eq('user_id', user.id),
+    supabase.from('task_runs')
+      .select('id, run_status, started_at, finished_at, output_payload')
+      .eq('user_id', user.id).gte('started_at', since7d)
+      .order('started_at', { ascending: false }).limit(500),
+    supabase.from('decision_logs')
+      .select('id, mode, detected_mode, risk_flags, created_at')
+      .eq('user_id', user.id).gte('created_at', since7d)
+      .order('created_at', { ascending: false }).limit(200),
+    supabase.from('approval_requests')
+      .select('id, project_id, action_type, risk_level, required_approvers, created_at, classification_reason')
+      .eq('user_id', user.id).eq('status', 'pending')
+      .order('created_at', { ascending: false }),
+    supabase.from('managers').select('*').eq('user_id', user.id),
+    supabase.from('manager_decisions')
+      .select('id, manager_id, decision_type, target_type, created_at, metadata')
+      .eq('user_id', user.id).gte('created_at', since7d)
+      .order('created_at', { ascending: false }).limit(500),
+    supabase.from('audit_logs')
+      .select('event_type, created_at, metadata')
+      .eq('user_id', user.id).gte('created_at', since7d)
+      .order('created_at', { ascending: false }).limit(1000),
+  ])
+
+  // ─── 1. system_matrix ─────────────────────────────────────────
+  const projectsBySystem = new Map<string, string[]>()
+  for (const sp of (systemProjects ?? [])) {
+    const arr = projectsBySystem.get(sp.system_id as string) ?? []
+    arr.push(sp.project_id as string)
+    projectsBySystem.set(sp.system_id as string, arr)
+  }
+  const projectMap = new Map((projects ?? []).map(p => [p.id as string, p]))
+
+  const system_matrix = (systems ?? []).map(s => {
+    const linkedIds = projectsBySystem.get(s.id as string) ?? []
+    const linked = linkedIds
+      .map(id => projectMap.get(id))
+      .filter((p): p is NonNullable<typeof p> => !!p)
+    return {
+      id: s.id, name: s.name, description: s.description,
+      status: s.status,
+      project_count: linked.length,
+      projects: linked.map(p => ({ id: p.id, name: p.name, status: p.status, current_stage: p.current_stage })),
+    }
+  })
+
+  // ─── 2. execution_pulse ───────────────────────────────────────
+  const allRuns = runs7d ?? []
+  const runs24h = allRuns.filter(r => new Date(r.started_at as string) >= new Date(since24h))
+  const succeeded7d = allRuns.filter(r => ['succeeded', 'completed'].includes(String(r.run_status))).length
+  const failed7d = allRuns.filter(r => r.run_status === 'failed').length
+  const running = allRuns.filter(r => ['running', 'queued', 'pending'].includes(String(r.run_status))).length
+
+  const finishedRuns = allRuns.filter(r => r.finished_at && r.started_at)
+  const durations = finishedRuns.map(r =>
+    new Date(r.finished_at as string).getTime() - new Date(r.started_at as string).getTime()
+  ).sort((a, b) => a - b)
+  const p50 = durations.length ? durations[Math.floor(durations.length * 0.5)] : 0
+  const p95 = durations.length ? durations[Math.floor(durations.length * 0.95)] : 0
+
+  const execution_pulse = {
+    runs_7d: allRuns.length,
+    runs_24h: runs24h.length,
+    succeeded_7d: succeeded7d,
+    failed_7d: failed7d,
+    running,
+    success_rate: allRuns.length > 0 ? Math.round((succeeded7d / allRuns.length) * 100) : 0,
+    p50_duration_ms: p50,
+    p95_duration_ms: p95,
+  }
+
+  // ─── 3. risk_radar ────────────────────────────────────────────
+  const flagCounts: Record<string, number> = {}
+  for (const d of (decisions7d ?? [])) {
+    const flags = (d.risk_flags ?? []) as Array<{ code?: string }>
+    for (const f of flags) {
+      if (f?.code) flagCounts[f.code] = (flagCounts[f.code] ?? 0) + 1
+    }
+  }
+  const risk_radar = {
+    decisions_7d: (decisions7d ?? []).length,
+    top_flags: Object.entries(flagCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([code, count]) => ({ code, count })),
+  }
+
+  // ─── 4. manager_reports ───────────────────────────────────────
+  const managerById = new Map((managers ?? []).map(m => [m.id as string, m]))
+  const decisionsByManager = new Map<string, { approve: number; reject: number; total: number }>()
+  for (const d of (managerDecisions7d ?? [])) {
+    const mid = d.manager_id as string
+    const stats = decisionsByManager.get(mid) ?? { approve: 0, reject: 0, total: 0 }
+    stats.total++
+    if (d.decision_type === 'approve') stats.approve++
+    if (d.decision_type === 'reject')  stats.reject++
+    decisionsByManager.set(mid, stats)
+  }
+  const manager_reports = Array.from(decisionsByManager.entries()).map(([mid, stats]) => {
+    const m = managerById.get(mid)
+    return {
+      manager_id: mid,
+      role: m?.role ?? 'unknown',
+      name: m?.name ?? 'Unknown',
+      avatar: m?.avatar ?? '🧑‍💼',
+      ...stats,
+      approve_rate: stats.total > 0 ? Math.round((stats.approve / stats.total) * 100) : 0,
+    }
+  }).sort((a, b) => b.total - a.total)
+
+  // ─── 5. ceo_decisions ─────────────────────────────────────────
+  const ceoPending = (pendingApprovals ?? []).filter(a =>
+    Array.isArray(a.required_approvers) && (a.required_approvers as string[]).includes('ceo')
+  )
+  const ceoRecent = (managerDecisions7d ?? []).filter(d => {
+    const m = managerById.get(d.manager_id as string)
+    return m?.role === 'ceo'
+  }).slice(0, 5)
+  const ceo_decisions = {
+    pending_count: ceoPending.length,
+    pending: ceoPending.slice(0, 5).map(a => ({
+      id: a.id, action_type: a.action_type, risk_level: a.risk_level,
+      classification_reason: a.classification_reason, created_at: a.created_at,
+    })),
+    recent: ceoRecent,
+  }
+
+  // ─── 6. auto_loop_status ──────────────────────────────────────
+  const events = (auditLogs7d ?? [])
+  const autoGranted = events.filter(e => e.event_type === 'auto_approval.granted').length
+  const aiUnanimous = events.filter(e => e.event_type === 'ai_manager.unanimous_approve').length
+  const aiRejected  = events.filter(e => e.event_type === 'ai_manager.rejected').length
+  const blocked     = events.filter(e => e.event_type === 'dispatch.blocked').length
+  const total = autoGranted + blocked
+  const auto_loop_status = {
+    auto_approved_7d: autoGranted,
+    ai_manager_unanimous_7d: aiUnanimous,
+    ai_manager_rejected_7d: aiRejected,
+    blocked_for_human_7d: blocked,
+    autonomy_rate: total > 0 ? Math.round((autoGranted / total) * 100) : 0,
+    pending_approvals: (pendingApprovals ?? []).length,
+    available_providers: listAvailableProviders(),
+  }
+
+  return Response.json({
+    system_matrix,
+    execution_pulse,
+    risk_radar,
+    manager_reports,
+    ceo_decisions,
+    auto_loop_status,
+    generated_at: new Date().toISOString(),
+  })
+}

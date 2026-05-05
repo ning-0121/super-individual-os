@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import {
   LayoutDashboard, MessageSquare, FolderOpen, CheckSquare,
   Brain, Bot, Layers, ClipboardCheck, Wrench, LogOut, ShieldCheck, Eye, ShieldAlert,
+  Activity,
 } from 'lucide-react'
 
 const nav = [
@@ -13,6 +14,7 @@ const nav = [
     group: 'Intelligence',
     items: [
       { href: '/dashboard',       label: 'Dashboard',     icon: LayoutDashboard },
+      { href: '/mission-control', label: 'Mission Control', icon: Activity },
       { href: '/projects',        label: 'Projects',      icon: FolderOpen },
     ],
   },
