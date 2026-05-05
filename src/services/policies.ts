@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { ExecutionPolicy } from '@/types'
+import type { ExecutionPolicy, ManagerRole, RiskLevel } from '@/types'
 import { DEFAULT_POLICIES } from '@/lib/managers/default-policies'
 import { evaluatePolicies, type EvalContext, type EvalResult } from '@/lib/managers/policy-evaluator'
 import { logger } from '@/lib/observability'
@@ -73,4 +73,58 @@ export async function evaluateForDispatch(
   await seedDefaultPolicies(supabase, userId)
   const policies = await loadPolicies(supabase, userId, projectId)
   return evaluatePolicies(policies, ctx)
+}
+
+// ─────────────────────────────────────────────────
+// V2.1+ Spec helpers — used by /api/dispatch and tests
+// ─────────────────────────────────────────────────
+
+export async function getPolicyForAction(
+  supabase: SupabaseClient,
+  userId: string,
+  projectId: string | null,
+  actionType: string,
+  riskLevel: RiskLevel,
+): Promise<ExecutionPolicy | null> {
+  await seedDefaultPolicies(supabase, userId)
+  const policies = await loadPolicies(supabase, userId, projectId)
+  const result = evaluatePolicies(policies, { action_type: actionType, risk_level: riskLevel })
+  if (!result.matched_policy_id) return null
+  return policies.find(p => p.id === result.matched_policy_id) ?? null
+}
+
+export function evaluateExecutionPolicy(
+  policies: ExecutionPolicy[],
+  actionType: string,
+  riskLevel: RiskLevel,
+  riskFlags?: string[],
+): EvalResult {
+  return evaluatePolicies(policies, {
+    action_type: actionType,
+    risk_level: riskLevel,
+    risk_flags: riskFlags,
+  })
+}
+
+export async function shouldAutoApprove(
+  supabase: SupabaseClient,
+  userId: string,
+  projectId: string | null,
+  actionType: string,
+  riskLevel: RiskLevel,
+): Promise<boolean> {
+  const result = await evaluateForDispatch(supabase, userId, projectId, {
+    action_type: actionType,
+    risk_level: riskLevel,
+  })
+  return result.decision === 'auto_approve'
+}
+
+export function getRequiredApproversFromPolicy(result: EvalResult): ManagerRole[] {
+  if (result.ai_manager_roles_required && result.ai_manager_roles_required.length > 0) {
+    return result.ai_manager_roles_required
+  }
+  if (result.ai_manager_role) return [result.ai_manager_role]
+  if (result.require_ceo) return ['ceo' as ManagerRole]
+  return []
 }

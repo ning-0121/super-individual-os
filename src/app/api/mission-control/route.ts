@@ -167,6 +167,14 @@ export async function GET() {
   const aiRejected  = events.filter(e => e.event_type === 'ai_manager.rejected').length
   const blocked     = events.filter(e => e.event_type === 'dispatch.blocked').length
   const total = autoGranted + blocked
+  // ─── 7. growth + tool status ──────────────────────────────────
+  const [{ count: toolCount }, { count: growthRunning }] = await Promise.all([
+    supabase.from('tool_integrations').select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id).eq('auth_status', 'connected').eq('is_active', true),
+    supabase.from('growth_experiments').select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id).eq('status', 'running'),
+  ])
+
   const auto_loop_status = {
     auto_approved_7d: autoGranted,
     ai_manager_unanimous_7d: aiUnanimous,
@@ -175,6 +183,35 @@ export async function GET() {
     autonomy_rate: total > 0 ? Math.round((autoGranted / total) * 100) : 0,
     pending_approvals: (pendingApprovals ?? []).length,
     available_providers: listAvailableProviders(),
+    tool_connection_count: toolCount ?? 0,
+    growth_loop_active: (growthRunning ?? 0) > 0,
+  }
+
+  // ─── 8. manager_reports — latest per role ─────────────────────
+  const { data: latestReports } = await supabase
+    .from('manager_reports')
+    .select('role, summary, generated_at, source')
+    .eq('user_id', user.id)
+    .order('generated_at', { ascending: false }).limit(20)
+  const seenRoles = new Set<string>()
+  const manager_reports_summary = (latestReports ?? []).filter(r => {
+    if (seenRoles.has(r.role as string)) return false
+    seenRoles.add(r.role as string); return true
+  }).map(r => ({
+    role: r.role, summary: r.summary, source: r.source, generated_at: r.generated_at,
+  }))
+
+  // ─── 9. growth_loop ────────────────────────────────────────────
+  const { data: exps } = await supabase
+    .from('growth_experiments')
+    .select('id, name, status, channel, current_value, target_value, system_id')
+    .eq('user_id', user.id).order('updated_at', { ascending: false }).limit(10)
+  const growth_loop = {
+    total: (exps ?? []).length,
+    running: (exps ?? []).filter(e => e.status === 'running').length,
+    planning: (exps ?? []).filter(e => e.status === 'planning').length,
+    completed: (exps ?? []).filter(e => e.status === 'completed').length,
+    recent: (exps ?? []).slice(0, 5),
   }
 
   return Response.json({
@@ -182,8 +219,10 @@ export async function GET() {
     execution_pulse,
     risk_radar,
     manager_reports,
+    manager_reports_summary,
     ceo_decisions,
     auto_loop_status,
+    growth_loop,
     generated_at: new Date().toISOString(),
   })
 }

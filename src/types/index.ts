@@ -284,8 +284,72 @@ export interface PolicyRule {
   }
   action: PolicyType
   ai_manager_role?: import('@/types').ManagerRole
+  // V2.1+ — multiple managers must all approve for this policy
+  ai_manager_roles_required?: import('@/types').ManagerRole[]
+  // V2.1+ — when policy approves, also require these flags
+  require_qa?: boolean
+  require_ceo?: boolean
   reason?: string
 }
+
+// ── V2.1+ — Manager Reports + Growth Experiments ──────────────────
+export type SystemRuntimeStatus = 'error' | 'blocked' | 'running' | 'idle'
+export type SystemRiskLevel = 0 | 1 | 2 | 3
+
+export interface SystemOverview {
+  id: string
+  name: string
+  description: string
+  status: SystemStatus
+  runtime_status: SystemRuntimeStatus
+  risk_level: SystemRiskLevel
+  progress_pct: number
+  open_tasks: number
+  total_tasks: number
+  failed_runs_24h: number
+  last_activity_at: string | null
+  linked_projects: Array<{ id: string; name: string; status: string; current_stage: number | null }>
+  owner_manager: { id: string; role: string; name: string } | null
+}
+
+export interface ManagerReport {
+  id: string
+  user_id: string
+  manager_id: string | null
+  project_id: string | null
+  system_id: string | null
+  role: string
+  report_period: 'daily' | 'weekly' | 'on_demand'
+  summary: string
+  metrics: Record<string, unknown>
+  source: 'rule_based' | 'llm' | 'manual'
+  generated_at: string
+}
+
+export type GrowthExperimentStatus = 'planning' | 'running' | 'completed' | 'aborted'
+
+export interface GrowthExperiment {
+  id: string
+  user_id: string
+  system_id: string
+  project_id: string | null
+  name: string
+  hypothesis: string
+  channel: string
+  target_metric: string
+  baseline_value: string
+  current_value: string
+  target_value: string
+  status: GrowthExperimentStatus
+  result_summary: string
+  next_action: string
+  started_at: string | null
+  ended_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type AutoDecision = 'approve' | 'reject' | 'revise' | 'escalate'
 
 export interface ExecutionPolicy {
   id: string

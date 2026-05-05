@@ -5,6 +5,7 @@ import { reportError } from '@/lib/error-reporter'
 import { classifyRisk } from '@/lib/managers/risk-classifier'
 import { evaluateForDispatch } from '@/services/policies'
 import { aiManagersUnanimous, type DecisionContext } from '@/lib/managers/ai-manager'
+import { autoDecideApprovalRequest } from '@/services/manager-auto-decision'
 import {
   createDefaultManagersForProject,
   createApprovalRequest,
@@ -116,9 +117,13 @@ export async function POST(req: Request) {
       }
 
       case 'ai_manager': {
-        const roles: ManagerRole[] = policy.ai_manager_role
-          ? [policy.ai_manager_role]
-          : (classification.required_approvers as ManagerRole[])
+        // V2.1+ — prefer roles_required (multi-approver), fall back to single role,
+        // fall back to risk classifier.
+        const roles: ManagerRole[] = (policy.ai_manager_roles_required && policy.ai_manager_roles_required.length > 0)
+          ? policy.ai_manager_roles_required
+          : policy.ai_manager_role
+            ? [policy.ai_manager_role]
+            : (classification.required_approvers as ManagerRole[])
 
         const stage = (project.current_stage as number | null) ?? null
         const stageDef = stage ? getStage(stage) : null
@@ -166,6 +171,61 @@ export async function POST(req: Request) {
           ...enrichment,
         }
 
+        // V2.1+ — Spec flow: create approval_request first, then auto-decide.
+        // This gives full audit trail + ability to retry decision later.
+        const tempApproval = await createApprovalRequest(supabase, {
+          userId: user.id, projectId: body.project_id,
+          taskId: body.task_id ?? null,
+          actionType: body.action_type,
+          actionPayload: body.action_payload ?? {},
+          riskLevel: classification.level,
+          requiredApprovers: roles,
+          classificationReason: classification.reason,
+          expiresInHours: 72,
+        })
+
+        if (tempApproval) {
+          const auto = await autoDecideApprovalRequest(supabase, user.id, tempApproval.id)
+          if (auto.ok && auto.final_status === 'approved' && auto.resume_execution) {
+            const result = await executeAction(supabase, user.id, body)
+            await audit(supabase, user.id, 'auto_approval.granted', {
+              resource_type: 'dispatch', resource_id: tempApproval.id,
+              metadata: {
+                project_id: body.project_id, action_type: body.action_type,
+                source: 'rule_based', policy_name: policy.matched_policy_name,
+                decisions: auto.decisions, result_kind: result.kind,
+              },
+            })
+            return apiOk({
+              dispatch: 'auto', source: 'rule_based',
+              risk_level: classification.level,
+              policy_name: policy.matched_policy_name,
+              approval_id: tempApproval.id,
+              ai_decisions: auto.decisions,
+              ...result,
+            })
+          }
+          if (auto.final_status === 'rejected') {
+            return apiOk({
+              dispatch: 'rejected', source: 'rule_based',
+              approval_id: tempApproval.id, risk_level: classification.level,
+              policy_name: policy.matched_policy_name,
+              ai_decisions: auto.decisions,
+              classification_reason: auto.decisions[0]?.reasoning ?? 'rejected by rules',
+            }, { status: 202 })
+          }
+          // Escalated → return as pending_approval (visible in /approvals)
+          return apiOk({
+            dispatch: 'pending_approval', source: 'rule_based_escalated',
+            approval_id: tempApproval.id, risk_level: classification.level,
+            required_approvers: roles,
+            policy_name: policy.matched_policy_name,
+            classification_reason: 'Escalated by rule engine (insufficient evidence)',
+            ai_decisions: auto.decisions,
+          }, { status: 202 })
+        }
+
+        // Fallback: rule-based path failed → use Claude-based path (legacy)
         const ai = await aiManagersUnanimous(supabase, user.id, body.project_id, roles, ctx)
 
         if (ai.all_approved) {

@@ -6,35 +6,50 @@ import { createClient } from '@/lib/supabase/client'
 import {
   LayoutDashboard, MessageSquare, FolderOpen, CheckSquare,
   Brain, Bot, Layers, ClipboardCheck, Wrench, LogOut, ShieldCheck, Eye, ShieldAlert,
-  Activity,
+  Activity, TrendingUp, Compass, Network, ListChecks, GitBranch,
 } from 'lucide-react'
 
 const nav = [
   {
-    group: 'Intelligence',
+    group: 'Command',
     items: [
-      { href: '/dashboard',       label: 'Dashboard',     icon: LayoutDashboard },
       { href: '/mission-control', label: 'Mission Control', icon: Activity },
-      { href: '/projects',        label: 'Projects',      icon: FolderOpen },
+      { href: '/systems',         label: 'Systems',         icon: Network },
+      { href: '/dashboard',       label: 'CEO Brief',       icon: LayoutDashboard },
     ],
   },
   {
-    group: 'Global',
+    group: 'Execution',
     items: [
-      { href: '/chat',            label: 'AI Co-founder', icon: MessageSquare },
-      { href: '/agents',          label: 'AI Workforce',  icon: Bot },
+      { href: '/projects',        label: 'Projects',        icon: FolderOpen },
       { href: '/command-center',  label: 'Command Center',  icon: Layers },
-      { href: '/tasks',           label: 'All Tasks',       icon: CheckSquare },
+      { href: '/tasks',           label: 'Tasks',           icon: CheckSquare },
       { href: '/approvals',       label: 'Approvals',       icon: ShieldAlert },
       { href: '/reviews',         label: 'Reviews',         icon: ClipboardCheck },
     ],
   },
   {
+    group: 'Organization',
+    items: [
+      { href: '/chat',            label: 'AI Co-founder',   icon: MessageSquare },
+      { href: '/agents',          label: 'AI Workforce',    icon: Bot },
+      { href: '/managers',        label: 'Managers',        icon: GitBranch },
+      { href: '/policies',        label: 'Policies',        icon: ListChecks },
+    ],
+  },
+  {
+    group: 'Growth',
+    items: [
+      { href: '/market-radar',    label: 'Market Radar',    icon: Compass },
+      { href: '/growth',          label: 'Growth Experiments', icon: TrendingUp },
+    ],
+  },
+  {
     group: 'System',
     items: [
-      { href: '/tools',             label: 'Tools',           icon: Wrench },
-      { href: '/system-readiness',  label: 'Beta Readiness',  icon: ShieldCheck },
-      { href: '/settings',          label: 'Second Brain',    icon: Brain },
+      { href: '/tools',             label: 'Tools',          icon: Wrench },
+      { href: '/settings',          label: 'Second Brain',   icon: Brain },
+      { href: '/system-readiness',  label: 'Beta Readiness', icon: ShieldCheck },
     ],
   },
 ]

@@ -123,12 +123,13 @@ describe('default policies — end-to-end behaviour', () => {
     expect(r.decision).toBe('auto_approve')
   })
 
-  it('GitHub createPullRequest goes to ai_manager (engineering)', () => {
+  it('GitHub createPullRequest goes to ai_manager (engineering + qa)', () => {
     const r = evaluatePolicies(defaultPolicies, {
       action_type: 'tool.github.createPullRequest', risk_level: 2,
     })
     expect(r.decision).toBe('ai_manager')
-    expect(r.ai_manager_role).toBe('engineering_manager')
+    expect(r.ai_manager_roles_required).toContain('engineering_manager')
+    expect(r.ai_manager_roles_required).toContain('qa_manager')
   })
 
   it('engineering task.run with github goes to ai_manager', () => {
@@ -152,6 +153,6 @@ describe('default policies — end-to-end behaviour', () => {
       action_type: 'production.deploy', risk_level: 3,
     })
     expect(r.decision).toBe('ai_manager')
-    expect(r.ai_manager_role).toBe('qa_manager')
+    expect(r.ai_manager_roles_required).toContain('qa_manager')
   })
 })

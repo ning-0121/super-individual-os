@@ -19,7 +19,10 @@ export interface EvalResult {
   decision: PolicyType
   matched_policy_id?: string
   matched_policy_name?: string
-  ai_manager_role?: ManagerRole
+  ai_manager_role?: ManagerRole                  // primary
+  ai_manager_roles_required?: ManagerRole[]      // V2.1+ all must approve
+  require_qa?: boolean
+  require_ceo?: boolean
   reason: string
 }
 
@@ -80,6 +83,9 @@ export function evaluatePolicies(
         matched_policy_id: p.id,
         matched_policy_name: p.policy_name,
         ai_manager_role: p.rule.ai_manager_role,
+        ai_manager_roles_required: p.rule.ai_manager_roles_required,
+        require_qa: p.rule.require_qa,
+        require_ceo: p.rule.require_ceo,
         reason: p.rule.reason ?? `Matched policy: ${p.policy_name}`,
       }
     }
