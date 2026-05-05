@@ -12,10 +12,30 @@ interface MissionData {
   execution_pulse: { runs_7d: number; runs_24h: number; succeeded_7d: number; failed_7d: number; running: number; success_rate: number; p50_duration_ms: number; p95_duration_ms: number }
   risk_radar: { decisions_7d: number; top_flags: Array<{ code: string; count: number }> }
   manager_reports: Array<{ manager_id: string; role: string; name: string; avatar: string; approve: number; reject: number; total: number; approve_rate: number }>
+  manager_reports_summary?: Array<{ role: string; summary: string; source: string; generated_at: string }>
+  growth_loop?: { total: number; running: number; planning: number; completed: number; recent: Array<{ id: string; name: string; status: string; channel: string; current_value: string; target_value: string; system_id: string }> }
   ceo_decisions: { pending_count: number; pending: Array<{ id: string; action_type: string; risk_level: number; classification_reason: string; created_at: string }>; recent: Array<{ id: string; decision_type: string; created_at: string }> }
-  auto_loop_status: { auto_approved_7d: number; ai_manager_unanimous_7d: number; ai_manager_rejected_7d: number; blocked_for_human_7d: number; autonomy_rate: number; pending_approvals: number; available_providers: string[] }
+  auto_loop_status: { auto_approved_7d: number; ai_manager_unanimous_7d: number; ai_manager_rejected_7d: number; blocked_for_human_7d: number; autonomy_rate: number; pending_approvals: number; available_providers: string[]; tool_connection_count?: number; growth_loop_active?: boolean }
   generated_at: string
 }
+
+// V2.1B canonical role labels for the manager-reports summary widget
+const ROLE_META: Record<string, { label: string; emoji: string; color: string }> = {
+  cto:                 { label: 'CTO',    emoji: '⚙️', color: 'text-emerald-400' },
+  engineering_manager: { label: 'CTO',    emoji: '⚙️', color: 'text-emerald-400' },
+  coo:                 { label: 'COO',    emoji: '🛠', color: 'text-amber-400'   },
+  finance_manager:     { label: 'COO',    emoji: '🛠', color: 'text-amber-400'   },
+  cpo:                 { label: 'CPO',    emoji: '🎨', color: 'text-violet-400'  },
+  design_manager:      { label: 'CPO',    emoji: '🎨', color: 'text-violet-400'  },
+  qa:                  { label: 'QA',     emoji: '🧪', color: 'text-cyan-400'    },
+  qa_manager:          { label: 'QA',     emoji: '🧪', color: 'text-cyan-400'    },
+  cgo:                 { label: 'CGO',    emoji: '📈', color: 'text-pink-400'    },
+  growth_manager:      { label: 'CGO',    emoji: '📈', color: 'text-pink-400'    },
+  cso:                 { label: 'CSO',    emoji: '🧭', color: 'text-orange-400'  },
+  risk_manager:        { label: 'CSO',    emoji: '🧭', color: 'text-orange-400'  },
+}
+
+const CANONICAL_ROLES = ['engineering_manager', 'finance_manager', 'design_manager', 'qa_manager', 'growth_manager', 'risk_manager'] as const
 
 export default function MissionControlPage() {
   const [data, setData] = useState<MissionData | null>(null)
@@ -177,6 +197,105 @@ export default function MissionControlPage() {
             )}
           </div>
 
+          {/* Manager Reports Summary — narrative per role */}
+          <div className="glass rounded-xl p-5 mb-4">
+            <div className="flex items-center gap-2 mb-3 text-violet-400">
+              <Bot size={13} />
+              <span className="text-xs font-semibold uppercase tracking-wider">Manager Reports Summary</span>
+            </div>
+            {(() => {
+              const summaries = data.manager_reports_summary ?? []
+              const byRole = new Map(summaries.map(s => [s.role, s]))
+              return (
+                <div className="grid grid-cols-3 gap-3">
+                  {CANONICAL_ROLES.map(role => {
+                    const meta = ROLE_META[role]
+                    const r = byRole.get(role)
+                    return (
+                      <div key={role} className="rounded-lg p-3"
+                        style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-base">{meta.emoji}</span>
+                          <p className={`text-xs font-semibold ${meta.color}`}>{meta.label}</p>
+                          {r ? (
+                            <span className="ml-auto text-[9px] font-mono px-1.5 py-0.5 rounded"
+                              style={{ background: 'rgba(34,211,238,0.1)', color: '#22d3ee' }}>
+                              {r.source}
+                            </span>
+                          ) : (
+                            <span className="ml-auto text-[9px]" style={{ color: 'var(--text-muted)' }}>无报告</span>
+                          )}
+                        </div>
+                        {r ? (
+                          <>
+                            <p className="text-[11px] mb-2 line-clamp-3" style={{ color: 'var(--text-secondary)' }}>
+                              {r.summary || '(空摘要)'}
+                            </p>
+                            <p className="text-[9px] font-mono" style={{ color: 'var(--text-muted)' }}>
+                              {new Date(r.generated_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                            No manager report yet — generate by running system analysis.
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+          </div>
+
+          {/* Growth Loop Widget */}
+          <div className="glass rounded-xl p-5 mb-4">
+            <div className="flex items-center gap-2 mb-3 text-pink-400">
+              <TrendingUp size={13} />
+              <span className="text-xs font-semibold uppercase tracking-wider">Growth Loop</span>
+              <Link href="/growth" className="ml-auto text-[10px] inline-flex items-center gap-1 text-[var(--accent-light)]">
+                查看全部 <ExternalLink size={9} />
+              </Link>
+            </div>
+            {(() => {
+              const g = data.growth_loop
+              if (!g || g.total === 0) {
+                return (
+                  <div className="py-6 text-center">
+                    <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
+                      Growth loop not started — create experiment.
+                    </p>
+                    <Link href="/growth" className="text-[10px] inline-flex items-center gap-1 text-pink-400">
+                      → 新建实验
+                    </Link>
+                  </div>
+                )
+              }
+              return (
+                <>
+                  <div className="grid grid-cols-4 gap-3 mb-3">
+                    <Stat label="总实验" value={g.total} accent="text-pink-400" />
+                    <Stat label="进行中" value={g.running} accent="text-amber-400" />
+                    <Stat label="规划" value={g.planning} accent="text-cyan-400" />
+                    <Stat label="完成" value={g.completed} accent="text-emerald-400" />
+                  </div>
+                  <div className="space-y-1.5">
+                    {g.recent.slice(0, 3).map(e => (
+                      <div key={e.id} className="flex items-center justify-between text-[11px] p-2 rounded-lg"
+                        style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+                        <span style={{ color: 'var(--text-primary)' }}>{e.name}</span>
+                        <div className="flex items-center gap-2 text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                          {e.channel && <code className="font-mono">{e.channel}</code>}
+                          <span className="font-mono">{e.status}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )
+            })()}
+          </div>
+
           {/* Bottom row: CEO decisions + system matrix */}
           <div className="grid grid-cols-2 gap-4 mb-4">
 
@@ -223,18 +342,30 @@ export default function MissionControlPage() {
               {data.system_matrix.length === 0 ? (
                 <div>
                   <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>还未创建任何 System</p>
-                  <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                    System 是项目之上的分组层（如"我的创业组合"、"咨询客户"），让你按业务线管理多个项目。
-                  </p>
+                  <Link href="/systems" className="text-[10px] inline-flex items-center gap-1 text-cyan-400">
+                    → Create your first system
+                  </Link>
                 </div>
               ) : (
                 <div className="space-y-2">
                   {data.system_matrix.map(s => (
-                    <div key={s.id} className="text-xs p-2 rounded-lg"
+                    <Link key={s.id} href={`/systems/${s.id}`}
+                      className="block text-xs p-2 rounded-lg hover:bg-white/5 transition-colors"
                       style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
-                      <p className="font-semibold mb-0.5" style={{ color: 'var(--text-primary)' }}>{s.name}</p>
-                      <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{s.project_count} 个项目 · {s.status}</p>
-                    </div>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <p className="font-semibold" style={{ color: 'var(--text-primary)' }}>{s.name}</p>
+                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded uppercase"
+                          style={{
+                            background: s.status === 'active' ? 'rgba(52,211,153,0.12)' : 'rgba(148,163,184,0.12)',
+                            color: s.status === 'active' ? '#34d399' : '#94a3b8',
+                          }}>
+                          {s.status}
+                        </span>
+                      </div>
+                      <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                        {s.project_count} 个项目
+                      </p>
+                    </Link>
                   ))}
                 </div>
               )}

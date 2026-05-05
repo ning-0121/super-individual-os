@@ -25,7 +25,8 @@ export async function POST(req: Request) {
 
   const body = await req.json() as {
     name: string; description?: string;
-    project_ids?: string[]
+    project_ids?: string[];
+    metadata?: Record<string, unknown>
   }
   if (!body.name) return apiError('name required', { status: 400 })
 
@@ -34,6 +35,7 @@ export async function POST(req: Request) {
     name: body.name,
     description: body.description ?? '',
     status: 'active',
+    metadata: body.metadata ?? {},
   }).select().single()
 
   if (error || !data) return apiError(error?.message ?? 'Insert failed', { status: 400 })

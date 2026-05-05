@@ -32,7 +32,7 @@ export async function middleware(request: NextRequest) {
   }
 
   if (user && isAuthPage) {
-    return NextResponse.redirect(new URL('/dashboard', request.url))
+    return NextResponse.redirect(new URL('/mission-control', request.url))
   }
 
   return supabaseResponse

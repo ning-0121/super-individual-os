@@ -20,6 +20,13 @@ interface ReadinessData {
   }
   recent_failures: Array<{ id: string; error_message: string; started_at: string; retry_count: number }>
   blockers: Array<{ severity: 'critical' | 'warning'; message: string }>
+  v2_1b?: {
+    systems_table: boolean
+    execution_policies_table: boolean
+    manager_reports_table: boolean
+    growth_experiments_table: boolean
+    execution_policies_seed: number
+  }
   test_coverage: { unit_tests: number; files: number; note: string }
   is_fresh_system: boolean
   generated_at: string
@@ -211,6 +218,31 @@ export default function SystemReadinessPage() {
               </p>
             </div>
           </div>
+
+          {/* V2.1B Migration Status */}
+          {data.v2_1b && (
+            <div className="glass rounded-xl p-5 mb-6">
+              <div className="flex items-center gap-2 mb-3 text-cyan-400">
+                <CheckCircle2 size={13} />
+                <span className="text-xs font-semibold uppercase tracking-wider">V2.1B Migration 状态</span>
+              </div>
+              <ul className="text-xs space-y-1.5">
+                <ChecklistItem ok={data.v2_1b.systems_table}            label="systems 表已就绪" />
+                <ChecklistItem ok={data.v2_1b.execution_policies_table} label="execution_policies 表已就绪" />
+                <ChecklistItem ok={data.v2_1b.manager_reports_table}    label="manager_reports 表已就绪 (V2.1B)" />
+                <ChecklistItem ok={data.v2_1b.growth_experiments_table} label="growth_experiments 表已就绪 (V2.1B)" />
+                <ChecklistItem
+                  ok={data.v2_1b.execution_policies_seed > 0}
+                  label={`execution_policies 已播种（${data.v2_1b.execution_policies_seed} 条）`}
+                />
+              </ul>
+              {(!data.v2_1b.manager_reports_table || !data.v2_1b.growth_experiments_table) && (
+                <p className="text-[10px] mt-3 pt-3 text-amber-400" style={{ borderTop: '1px solid var(--border)' }}>
+                  ⚠ 在 Supabase SQL Editor 跑 <code className="px-1 rounded bg-black/20">supabase/v2.1b-systems-extras.sql</code> 以启用 Manager Reports + Growth Loop。
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Recent failures */}
           {data.recent_failures.length > 0 && (

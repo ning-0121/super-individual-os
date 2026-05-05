@@ -86,6 +86,53 @@ export async function GET() {
     blockers.push({ severity: 'warning', message: '尚未连接任何工具 — Agent 将无法执行真实动作' })
   }
 
+  // ─── V2.1B migration probes ───────────────────────────
+  // We try a HEAD count on each table; if PostgREST returns a 42P01 / "does not exist"
+  // error, we surface a clear blocker so the user knows to run the SQL migration.
+  async function tableExists(name: string): Promise<boolean> {
+    try {
+      const { error } = await supabase.from(name).select('id', { count: 'exact', head: true }).limit(1)
+      if (!error) return true
+      const msg = (error.message ?? '').toLowerCase()
+      // 42P01 = relation does not exist
+      if (msg.includes('does not exist') || msg.includes('42p01')) return false
+      // Unknown error — assume table exists; we don't want to spam blockers
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const [systemsExists, executionPoliciesExists, managerReportsExists, growthExperimentsExists] = await Promise.all([
+    tableExists('systems'),
+    tableExists('execution_policies'),
+    tableExists('manager_reports'),
+    tableExists('growth_experiments'),
+  ])
+
+  let executionPoliciesSeed = 0
+  if (executionPoliciesExists) {
+    const { count } = await supabase.from('execution_policies').select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id).eq('is_active', true)
+    executionPoliciesSeed = count ?? 0
+  }
+
+  if (!systemsExists) {
+    blockers.push({ severity: 'critical', message: 'V2.1 migration 未应用：systems 表不存在' })
+  }
+  if (!managerReportsExists || !growthExperimentsExists) {
+    blockers.push({
+      severity: 'warning',
+      message: 'V2.1B migration 未应用：manager_reports 或 growth_experiments 表缺失（请在 Supabase 跑 v2.1b-systems-extras.sql）',
+    })
+  }
+  if (executionPoliciesExists && executionPoliciesSeed === 0) {
+    blockers.push({
+      severity: 'warning',
+      message: 'execution_policies 还未播种 — 触发任意 dispatch 即可自动播种 13 条默认策略',
+    })
+  }
+
   // Check if audit_logs table exists and has data (system has been used)
   const isFreshSystem = (auditLogCount ?? 0) === 0
 
@@ -116,6 +163,13 @@ export async function GET() {
       retry_count: r.retry_count ?? 0,
     })),
     blockers,
+    v2_1b: {
+      systems_table:            systemsExists,
+      execution_policies_table: executionPoliciesExists,
+      manager_reports_table:    managerReportsExists,
+      growth_experiments_table: growthExperimentsExists,
+      execution_policies_seed:  executionPoliciesSeed,
+    },
     test_coverage: {
       unit_tests: 36,
       files: 5,
