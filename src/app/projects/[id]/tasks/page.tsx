@@ -32,6 +32,9 @@ export default function ProjectTasksPage({ params }: { params: Promise<{ id: str
   const [agents, setAgents] = useState<Agent[]>([])
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState<string | null>(null)
+  const [approvalNotices, setApprovalNotices] = useState<Record<string, {
+    approval_id: string; risk_level: number; required_approvers: string[]; classification_reason: string
+  }>>({})
 
   useEffect(() => {
     Promise.all([
@@ -54,6 +57,21 @@ export default function ProjectTasksPage({ params }: { params: Promise<{ id: str
     const res = await fetch(`/api/tasks/${taskId}/run`, { method: 'POST' })
     const data = await res.json()
     setRunning(null)
+
+    // V2.0 Phase 2A — high-risk action gated by manager approval
+    if (data?.dispatch === 'pending_approval' && data.approval_id) {
+      setApprovalNotices(prev => ({
+        ...prev,
+        [taskId]: {
+          approval_id: data.approval_id as string,
+          risk_level: data.risk_level as number,
+          required_approvers: (data.required_approvers ?? []) as string[],
+          classification_reason: (data.classification_reason ?? '') as string,
+        },
+      }))
+      return
+    }
+
     if (data.task_run_id) router.push(`/task-runs/${data.task_run_id}`)
     else if (data.error) alert(data.error)
   }
@@ -80,18 +98,23 @@ export default function ProjectTasksPage({ params }: { params: Promise<{ id: str
 
   return (
     <div className="p-6 max-w-5xl">
-      <Section title="进行中" tasks={grouped.active} agents={agents} tasksAll={tasks} onRun={runAgent} runningId={running} isBlocked={isBlocked} />
+      <Section title="进行中" tasks={grouped.active} agents={agents} tasksAll={tasks} onRun={runAgent} runningId={running} isBlocked={isBlocked} approvalNotices={approvalNotices} />
       {grouped.done.length > 0 && (
-        <Section title="已完成 / 归档" tasks={grouped.done} agents={agents} tasksAll={tasks} onRun={runAgent} runningId={running} isBlocked={() => false} muted />
+        <Section title="已完成 / 归档" tasks={grouped.done} agents={agents} tasksAll={tasks} onRun={runAgent} runningId={running} isBlocked={() => false} approvalNotices={approvalNotices} muted />
       )}
     </div>
   )
 }
 
-function Section({ title, tasks, agents, tasksAll, onRun, runningId, isBlocked, muted }: {
+interface ApprovalNotice {
+  approval_id: string; risk_level: number; required_approvers: string[]; classification_reason: string
+}
+
+function Section({ title, tasks, agents, tasksAll, onRun, runningId, isBlocked, approvalNotices, muted }: {
   title: string; tasks: Task[]; agents: Agent[]; tasksAll: Task[];
   onRun: (id: string) => void; runningId: string | null;
   isBlocked: (t: Task) => boolean; muted?: boolean;
+  approvalNotices?: Record<string, ApprovalNotice>;
 }) {
   return (
     <div className="mb-6">
@@ -102,8 +125,24 @@ function Section({ title, tasks, agents, tasksAll, onRun, runningId, isBlocked, 
           const blocked = isBlocked(t)
           const statusColor = STATUS_COLOR[t.workflow_status] ?? '#94a3b8'
           const canRun = agent && agent.type !== 'human' && ['planned','assigned','revision_required','draft'].includes(t.workflow_status)
+          const notice = approvalNotices?.[t.id]
           return (
             <div key={t.id} className={`glass rounded-xl p-4 ${muted ? 'opacity-60' : ''}`}>
+              {notice && (
+                <div className="mb-3 px-2.5 py-2 rounded-lg flex items-start gap-2 text-[11px]"
+                  style={{ background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.3)' }}>
+                  <span className="text-amber-400 mt-0.5">🛡️</span>
+                  <div className="flex-1" style={{ color: 'var(--text-secondary)' }}>
+                    <p className="text-amber-400 font-semibold mb-0.5">
+                      等待审批 · 风险等级 L{notice.risk_level}
+                    </p>
+                    <p className="mb-1" style={{ color: 'var(--text-muted)' }}>
+                      需要 {notice.required_approvers.join('、')} 批准 · {notice.classification_reason}
+                    </p>
+                    <a href="/approvals" className="text-[var(--accent-light)] hover:underline">→ 前往审批</a>
+                  </div>
+                </div>
+              )}
               <div className="flex items-start gap-3">
                 <span className="text-base shrink-0">{agent?.avatar ?? '🤖'}</span>
                 <div className="flex-1 min-w-0">

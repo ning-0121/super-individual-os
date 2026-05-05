@@ -36,6 +36,13 @@ export default function CommandCenterPage() {
   const [goal, setGoal]             = useState('')
   const [showGoalInput, setShowGoalInput] = useState<string | null>(null)
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
+  // V2.0 Phase 2A — pending approval notices keyed by task_id
+  const [approvalNotices, setApprovalNotices] = useState<Record<string, {
+    approval_id: string
+    risk_level: number
+    required_approvers: string[]
+    classification_reason: string
+  }>>({})
   const [updatingTask, setUpdatingTask]   = useState<string | null>(null)
 
   useEffect(() => {
@@ -85,10 +92,25 @@ export default function CommandCenterPage() {
     try {
       const res = await fetch(`/api/tasks/${taskId}/run`, { method: 'POST' })
       const data = await res.json()
+
+      // V2.0 Phase 2A — high-risk action gated by manager approval
+      if (data?.dispatch === 'pending_approval' && data.approval_id) {
+        setApprovalNotices(prev => ({
+          ...prev,
+          [taskId]: {
+            approval_id: data.approval_id as string,
+            risk_level: data.risk_level as number,
+            required_approvers: (data.required_approvers ?? []) as string[],
+            classification_reason: (data.classification_reason ?? '') as string,
+          },
+        }))
+        loadProjectTasks(projectId)
+        return
+      }
+
       if (data.task_run_id) {
         router.push(`/task-runs/${data.task_run_id}`)
       } else if (data.error) {
-        // Show structured error
         if (data.blocked_by && Array.isArray(data.blocked_by)) {
           alert(`前置任务未完成，无法运行：\n\n${(data.blocked_by as Array<{title:string; status:string}>).map(b => `· ${b.title} (${b.status})`).join('\n')}`)
         } else if (data.existing_run_id) {
@@ -293,6 +315,7 @@ export default function CommandCenterPage() {
                       })}
                       onUpdateStatus={(taskId, status) => updateWorkflowStatus(taskId, status, activeProject!)}
                       onRunAgent={(taskId) => runAgent(taskId, activeProject!)}
+                      approvalNotices={approvalNotices}
                       updatingId={updatingTask}
                     />
                   ))}
@@ -306,7 +329,14 @@ export default function CommandCenterPage() {
   )
 }
 
-function TaskTreeNode({ task, allTasks, subtasks, agents, expanded, onToggle, onUpdateStatus, onRunAgent, updatingId, depth = 0 }: {
+interface ApprovalNotice {
+  approval_id: string
+  risk_level: number
+  required_approvers: string[]
+  classification_reason: string
+}
+
+function TaskTreeNode({ task, allTasks, subtasks, agents, expanded, onToggle, onUpdateStatus, onRunAgent, approvalNotices, updatingId, depth = 0 }: {
   task: Task
   allTasks: Task[]
   subtasks: Task[]
@@ -315,9 +345,11 @@ function TaskTreeNode({ task, allTasks, subtasks, agents, expanded, onToggle, on
   onToggle: (id: string) => void
   onUpdateStatus: (taskId: string, status: WorkflowStatus) => void
   onRunAgent: (taskId: string) => void
+  approvalNotices?: Record<string, ApprovalNotice>
   updatingId: string | null
   depth?: number
 }) {
+  const notice = approvalNotices?.[task.id]
   const isExpanded = expanded.has(task.id)
   const meta = WORKFLOW_META[task.workflow_status ?? 'draft'] ?? WORKFLOW_META.draft
   const prioColor = PRIORITY_COLOR[task.priority] ?? 'text-slate-400'
@@ -457,6 +489,26 @@ function TaskTreeNode({ task, allTasks, subtasks, agents, expanded, onToggle, on
               )}
             </div>
 
+            {/* V2.0 Phase 2A — pending approval notice */}
+            {notice && (
+              <div className="mt-2 ml-3.5 text-[10px] px-2 py-2 rounded-lg flex items-start gap-2"
+                style={{ background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.3)' }}>
+                <span className="text-amber-400 mt-0.5">🛡️</span>
+                <div className="flex-1" style={{ color: 'var(--text-secondary)' }}>
+                  <p className="text-amber-400 font-semibold mb-0.5">
+                    等待审批 · 风险等级 L{notice.risk_level}
+                  </p>
+                  <p style={{ color: 'var(--text-muted)' }}>
+                    需要 {notice.required_approvers.join('、')} 批准 ·
+                    <span className="italic ml-1">{notice.classification_reason}</span>
+                  </p>
+                  <a href="/approvals" className="text-[var(--accent-light)] hover:underline mt-1 inline-block">
+                    → 前往审批 (/approvals)
+                  </a>
+                </div>
+              </div>
+            )}
+
             {/* Blocked-by deps explanation */}
             {isDependencyBlocked && (
               <div className="mt-2 ml-3.5 text-[9px] px-2 py-1.5 rounded-lg flex items-start gap-1.5"
@@ -486,7 +538,9 @@ function TaskTreeNode({ task, allTasks, subtasks, agents, expanded, onToggle, on
           <TaskTreeNode
             task={sub} allTasks={allTasks} subtasks={[]} agents={agents}
             expanded={expanded} onToggle={onToggle}
-            onUpdateStatus={onUpdateStatus} onRunAgent={onRunAgent} updatingId={updatingId}
+            onUpdateStatus={onUpdateStatus} onRunAgent={onRunAgent}
+            approvalNotices={approvalNotices}
+            updatingId={updatingId}
             depth={depth + 1}
           />
         </div>

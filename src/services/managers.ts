@@ -269,3 +269,77 @@ export async function findManagerByRole(
     .eq('user_id', userId).eq('project_id', projectId).eq('role', role).maybeSingle()
   return (data as Manager) ?? null
 }
+
+// ─────────────────────────────────────────────────
+// Phase 2A — Resolve all required roles at once.
+// Models the user as the umbrella authority (CEO) acting on behalf of
+// all required managers. Records one manager_decision per role.
+// Used by /api/approval-requests/[id]/resolve.
+// ─────────────────────────────────────────────────
+export async function resolveAllRequiredRoles(
+  supabase: SupabaseClient,
+  params: {
+    userId: string
+    requestId: string
+    decision: 'approved' | 'rejected'
+    reason?: string
+  },
+): Promise<{ ok: boolean; status: ApprovalStatus; error?: string; request?: ApprovalRequest }> {
+  const { data: req } = await supabase
+    .from('approval_requests')
+    .select('*')
+    .eq('id', params.requestId).eq('user_id', params.userId).single()
+
+  if (!req) return { ok: false, status: 'cancelled', error: 'Request not found' }
+
+  const r = req as ApprovalRequest
+  if (r.status !== 'pending') return { ok: false, status: r.status, error: `Already ${r.status}` }
+
+  const required = (r.required_approvers ?? []) as ManagerRole[]
+  if (required.length === 0) return { ok: false, status: r.status, error: 'No required approvers' }
+
+  const decisionType: ManagerDecisionType = params.decision === 'approved' ? 'approve' : 'reject'
+  const ts = new Date().toISOString()
+
+  // Look up each required manager + record decision
+  const acted: ApproverAction[] = []
+  const missingRoles: ManagerRole[] = []
+  for (const role of required) {
+    const mgr = await findManagerByRole(supabase, params.userId, r.project_id, role)
+    if (!mgr) { missingRoles.push(role); continue }
+    acted.push({ role, manager_id: mgr.id, decision: decisionType, ts, reasoning: params.reason })
+    await createManagerDecision(supabase, {
+      userId: params.userId,
+      projectId: r.project_id,
+      managerId: mgr.id,
+      decisionType,
+      targetType: 'approval_request',
+      targetId: r.id,
+      reasoning: params.reason,
+      metadata: { action_type: r.action_type, role, decided_via: 'user_resolve' },
+    })
+  }
+
+  if (missingRoles.length > 0) {
+    return { ok: false, status: r.status, error: `Missing managers for roles: ${missingRoles.join(', ')}` }
+  }
+
+  const newStatus: ApprovalStatus = params.decision === 'approved' ? 'approved' : 'rejected'
+
+  const { error: upErr } = await supabase
+    .from('approval_requests')
+    .update({ approvers_acted: acted, status: newStatus, resolved_at: ts })
+    .eq('id', r.id).eq('user_id', params.userId)
+
+  if (upErr) return { ok: false, status: r.status, error: upErr.message }
+
+  logger.info('approval.resolved_all', {
+    user_id: params.userId, project_id: r.project_id,
+    approval_id: r.id, decision: params.decision, role_count: required.length,
+  })
+
+  return {
+    ok: true, status: newStatus,
+    request: { ...r, approvers_acted: acted, status: newStatus, resolved_at: ts },
+  }
+}
