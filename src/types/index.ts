@@ -234,6 +234,96 @@ export interface Memory {
   created_at: string
 }
 
+// ── V2.0 — Manager Layer ───────────────────────────────────────────
+export type RiskLevel = 0 | 1 | 2 | 3 | 4
+
+export type ManagerRole =
+  | 'ceo'
+  | 'engineering_manager'
+  | 'design_manager'
+  | 'growth_manager'
+  | 'finance_manager'
+  | 'qa_manager'
+  | 'risk_manager'
+
+export type ManagerDecisionType = 'approve' | 'reject' | 'escalate' | 'request_revision' | 'observe'
+
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'cancelled'
+
+export interface Manager {
+  id: string
+  user_id: string
+  project_id: string
+  role: ManagerRole
+  domain: string
+  name: string
+  avatar: string
+  description: string
+  authority_level: RiskLevel
+  system_prompt: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface ManagerPolicy {
+  id: string
+  manager_id: string
+  user_id: string
+  policy_type: string
+  rule: Record<string, unknown>
+  is_active: boolean
+  created_at: string
+}
+
+export interface ManagerDecision {
+  id: string
+  manager_id: string
+  user_id: string
+  project_id: string
+  decision_type: ManagerDecisionType
+  target_type: string
+  target_id: string | null
+  reasoning: string
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
+export interface ApproverAction {
+  role: ManagerRole
+  manager_id: string
+  decision: ManagerDecisionType
+  ts: string
+  reasoning?: string
+}
+
+export interface ApprovalRequest {
+  id: string
+  user_id: string
+  project_id: string
+  task_id: string | null
+  task_run_id: string | null
+  action_type: string
+  action_payload: Record<string, unknown>
+  risk_level: RiskLevel
+  required_approvers: ManagerRole[]
+  approvers_acted: ApproverAction[]
+  status: ApprovalStatus
+  classification_reason: string
+  expires_at: string | null
+  resolved_at: string | null
+  created_at: string
+}
+
+export interface SystemState {
+  id: string
+  user_id: string
+  project_id: string
+  key: string
+  value: Record<string, unknown>
+  updated_at: string
+}
+
 // ── V1.8 — Platform refactor types ──────────────────────────────────
 export interface ProjectAgent {
   id: string

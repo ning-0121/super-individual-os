@@ -15,6 +15,10 @@ export type AuditEvent =
   | 'tool_call.executed'
   // Reviews
   | 'review.approved' | 'review.revision_required' | 'review.rejected'
+  // V2.0 — Manager Layer
+  | 'manager.created' | 'manager_decision.created'
+  | 'approval.requested' | 'approval.resolved'
+  | 'dispatch.blocked' | 'dispatch.approved' | 'dispatch.auto'
   // Misc
   | 'auth.login_check' | 'system.readiness_view'
 
