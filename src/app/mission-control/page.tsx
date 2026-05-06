@@ -16,6 +16,11 @@ interface MissionData {
   growth_loop?: { total: number; running: number; planning: number; completed: number; recent: Array<{ id: string; name: string; status: string; channel: string; current_value: string; target_value: string; system_id: string }> }
   ceo_decisions: { pending_count: number; pending: Array<{ id: string; action_type: string; risk_level: number; classification_reason: string; created_at: string }>; recent: Array<{ id: string; decision_type: string; created_at: string }> }
   auto_loop_status: { auto_approved_7d: number; ai_manager_unanimous_7d: number; ai_manager_rejected_7d: number; blocked_for_human_7d: number; autonomy_rate: number; pending_approvals: number; available_providers: string[]; tool_connection_count?: number; growth_loop_active?: boolean }
+  tool_autonomy?: {
+    runs_7d: number; failed_24h: number; blocked_or_pending: number
+    recent_failures: Array<{ id: string; action: string; error_message: string; started_at: string }>
+    model_usage: Array<{ provider: string; runs: number; input_tokens: number; output_tokens: number }>
+  }
   generated_at: string
 }
 
@@ -295,6 +300,43 @@ export default function MissionControlPage() {
               )
             })()}
           </div>
+
+          {/* Tool Autonomy Status */}
+          {data.tool_autonomy && (
+            <div className="glass rounded-xl p-5 mb-4">
+              <div className="flex items-center gap-2 mb-3 text-emerald-400">
+                <Activity size={13} />
+                <span className="text-xs font-semibold uppercase tracking-wider">Tool Autonomy</span>
+                <Link href="/tools/autonomy" className="ml-auto text-[10px] inline-flex items-center gap-1 text-[var(--accent-light)]">
+                  详情 <ExternalLink size={9} />
+                </Link>
+              </div>
+              <div className="grid grid-cols-4 gap-3 mb-3">
+                <Stat label="7d 工具运行" value={data.tool_autonomy.runs_7d} />
+                <Stat label="24h 失败" value={data.tool_autonomy.failed_24h}
+                  accent={data.tool_autonomy.failed_24h > 0 ? 'text-red-400' : 'text-emerald-400'} />
+                <Stat label="阻塞队列" value={data.tool_autonomy.blocked_or_pending}
+                  accent={data.tool_autonomy.blocked_or_pending > 0 ? 'text-amber-400' : 'text-emerald-400'} />
+                <Stat label="模型 providers" value={data.tool_autonomy.model_usage.length} accent="text-violet-400" />
+              </div>
+              {data.tool_autonomy.model_usage.length > 0 && (
+                <div className="flex flex-wrap gap-2 text-[10px] mb-2">
+                  {data.tool_autonomy.model_usage.map(u => (
+                    <code key={u.provider}
+                      className="px-2 py-0.5 rounded font-mono"
+                      style={{ background: 'rgba(167,139,250,0.1)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}>
+                      {u.provider}: {u.runs} runs · {(u.input_tokens + u.output_tokens).toLocaleString()} tok
+                    </code>
+                  ))}
+                </div>
+              )}
+              {data.tool_autonomy.recent_failures.length > 0 && (
+                <div className="text-[10px] mt-2 pt-2" style={{ borderTop: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                  最近失败：{data.tool_autonomy.recent_failures.slice(0, 2).map(f => f.action).join(', ')}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Bottom row: CEO decisions + system matrix */}
           <div className="grid grid-cols-2 gap-4 mb-4">

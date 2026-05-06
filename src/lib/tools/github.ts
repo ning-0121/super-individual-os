@@ -169,6 +169,117 @@ async function listRepos(cfg: GitHubConfig) {
 }
 
 // ─────────────────────────────────────────────────
+// V2.2 — Read-only / lower-risk actions
+// ─────────────────────────────────────────────────
+
+function parseRepo(p: { repo?: string }, cfg: GitHubConfig): [string, string] {
+  const full = p.repo || cfg.default_repo
+  if (!full) throw new Error('repo required (owner/name)')
+  const [owner, repo] = full.split('/')
+  if (!owner || !repo) throw new Error(`bad repo: ${full}`)
+  return [owner, repo]
+}
+
+interface ReadFileParams { repo?: string; path: string; ref?: string }
+async function readFile(p: ReadFileParams, cfg: GitHubConfig) {
+  if (!p.path) throw new Error('path required')
+  const [owner, repo] = parseRepo(p, cfg)
+  const ref = p.ref ?? cfg.default_branch ?? 'main'
+  const data = await gh<{ content?: string; encoding?: string; sha?: string; size?: number; path?: string }>(
+    cfg.access_token, 'GET',
+    `/repos/${owner}/${repo}/contents/${encodeContentPath(p.path)}?ref=${encodeURIComponent(ref)}`)
+  const content = data.content && data.encoding === 'base64'
+    ? Buffer.from(data.content, 'base64').toString('utf-8') : ''
+  return { path: data.path ?? p.path, ref, sha: data.sha ?? null, size: data.size ?? content.length, content }
+}
+
+interface ListBranchesParams { repo?: string; per_page?: number }
+async function listBranches(p: ListBranchesParams, cfg: GitHubConfig) {
+  const [owner, repo] = parseRepo(p, cfg)
+  const per = Math.min(Math.max(p.per_page ?? 30, 1), 100)
+  const data = await gh<Array<{ name: string; protected: boolean; commit: { sha: string } }>>(
+    cfg.access_token, 'GET', `/repos/${owner}/${repo}/branches?per_page=${per}`)
+  return {
+    repo: `${owner}/${repo}`,
+    branches: data.map(b => ({ name: b.name, protected: b.protected, sha: b.commit.sha })),
+  }
+}
+
+interface CreateBranchParams { repo?: string; branch: string; base?: string }
+async function createBranch(p: CreateBranchParams, cfg: GitHubConfig) {
+  if (!p.branch) throw new Error('branch required')
+  const [owner, repo] = parseRepo(p, cfg)
+  const base = p.base || cfg.default_branch || 'main'
+  if (p.branch === 'main' || p.branch === 'master') throw new Error('cannot use main/master as a new branch')
+  const ref = await gh<{ object: { sha: string } }>(cfg.access_token, 'GET',
+    `/repos/${owner}/${repo}/git/refs/heads/${base}`)
+  try {
+    await gh(cfg.access_token, 'POST', `/repos/${owner}/${repo}/git/refs`, {
+      ref: `refs/heads/${p.branch}`, sha: ref.object.sha,
+    })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (!/already exists/i.test(msg)) throw e
+  }
+  return { repo: `${owner}/${repo}`, branch: p.branch, base, base_sha: ref.object.sha }
+}
+
+interface CreateOrUpdateFileParams { repo?: string; branch: string; path: string; content: string; message?: string }
+async function createOrUpdateFile(p: CreateOrUpdateFileParams, cfg: GitHubConfig) {
+  if (!p.branch) throw new Error('branch required')
+  if (p.branch === 'main' || p.branch === 'master')
+    throw new Error('writing directly to main/master is forbidden — open a PR instead')
+  if (!p.path) throw new Error('path required')
+  const [owner, repo] = parseRepo(p, cfg)
+
+  let existingSha: string | undefined
+  try {
+    const cur = await gh<{ sha: string }>(cfg.access_token, 'GET',
+      `/repos/${owner}/${repo}/contents/${encodeContentPath(p.path)}?ref=${encodeURIComponent(p.branch)}`)
+    existingSha = cur.sha
+  } catch { /* missing → create */ }
+
+  const contentB64 = Buffer.from(p.content, 'utf-8').toString('base64')
+  const out = await gh<{ content: { sha: string; html_url: string }; commit: { sha: string } }>(
+    cfg.access_token, 'PUT', `/repos/${owner}/${repo}/contents/${encodeContentPath(p.path)}`, {
+      message: p.message || `agent: update ${p.path}`,
+      content: contentB64,
+      branch: p.branch,
+      ...(existingSha ? { sha: existingSha } : {}),
+    })
+  return {
+    repo: `${owner}/${repo}`, branch: p.branch, path: p.path,
+    sha: out.content.sha, html_url: out.content.html_url, commit_sha: out.commit.sha,
+  }
+}
+
+interface CommentOnPRParams { repo?: string; pr_number: number; body: string }
+async function commentOnPullRequest(p: CommentOnPRParams, cfg: GitHubConfig) {
+  if (!p.pr_number) throw new Error('pr_number required')
+  if (!p.body) throw new Error('body required')
+  const [owner, repo] = parseRepo(p, cfg)
+  const c = await gh<{ id: number; html_url: string }>(cfg.access_token, 'POST',
+    `/repos/${owner}/${repo}/issues/${p.pr_number}/comments`, { body: p.body })
+  return { id: c.id, url: c.html_url, repo: `${owner}/${repo}` }
+}
+
+interface GetPRDiffParams { repo?: string; pr_number: number }
+async function getPullRequestDiff(p: GetPRDiffParams, cfg: GitHubConfig) {
+  if (!p.pr_number) throw new Error('pr_number required')
+  const [owner, repo] = parseRepo(p, cfg)
+  const files = await gh<Array<{ filename: string; status: string; additions: number; deletions: number; changes: number; patch?: string }>>(
+    cfg.access_token, 'GET', `/repos/${owner}/${repo}/pulls/${p.pr_number}/files?per_page=100`)
+  return {
+    repo: `${owner}/${repo}`, pr_number: p.pr_number,
+    files: files.map(f => ({
+      filename: f.filename, status: f.status,
+      additions: f.additions, deletions: f.deletions, changes: f.changes,
+      patch: (f.patch ?? '').slice(0, 4000),
+    })),
+  }
+}
+
+// ─────────────────────────────────────────────────
 // Handler export
 // ─────────────────────────────────────────────────
 export const githubTool: ToolHandler = {
@@ -207,9 +318,18 @@ export const githubTool: ToolHandler = {
     if (!cfg?.access_token) throw new Error('GitHub 工具未配置 access_token')
 
     switch (action) {
-      case 'createPullRequest': return createPullRequest(params as unknown as CreatePRParams, cfg)
-      case 'createIssue':       return createIssue(params as unknown as CreateIssueParams, cfg)
-      case 'listRepos':         return listRepos(cfg)
+      case 'createPullRequest':       return createPullRequest(params as unknown as CreatePRParams, cfg)
+      case 'createIssue':             return createIssue(params as unknown as CreateIssueParams, cfg)
+      case 'listRepos':               return listRepos(cfg)
+      // V2.2 additions
+      case 'readFile':                return readFile(params as unknown as ReadFileParams, cfg)
+      case 'listBranches':            return listBranches(params as unknown as ListBranchesParams, cfg)
+      case 'createBranch':            return createBranch(params as unknown as CreateBranchParams, cfg)
+      case 'createOrUpdateFile':      return createOrUpdateFile(params as unknown as CreateOrUpdateFileParams, cfg)
+      case 'commentOnPullRequest':    return commentOnPullRequest(params as unknown as CommentOnPRParams, cfg)
+      case 'getPullRequestDiff':      return getPullRequestDiff(params as unknown as GetPRDiffParams, cfg)
+      case 'mergePullRequest':
+        throw new Error('mergePullRequest is L4 — must be approved by CEO and executed manually for safety')
       default: throw new Error(`Unknown action: ${action}`)
     }
   },

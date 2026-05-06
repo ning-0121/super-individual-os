@@ -214,6 +214,51 @@ export async function GET() {
     recent: (exps ?? []).slice(0, 5),
   }
 
+  // ─── 10. tool_autonomy ─────────────────────────────────
+  const since24hForTools = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
+  const [
+    { count: toolRunsTotal },
+    { count: toolRunsFailed },
+    { count: toolRunsBlocked },
+    { data: recentFailedTools },
+    { data: modelUsage },
+  ] = await Promise.all([
+    supabase.from('tool_runs').select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id).gte('started_at', since7d),
+    supabase.from('tool_runs').select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id).eq('status', 'error').gte('started_at', since24hForTools),
+    supabase.from('tool_runs').select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id).in('status', ['blocked', 'pending_approval']),
+    supabase.from('tool_runs')
+      .select('id, action, error_message, started_at')
+      .eq('user_id', user.id).eq('status', 'error')
+      .order('started_at', { ascending: false }).limit(5),
+    supabase.from('model_runs').select('provider, input_tokens, output_tokens')
+      .eq('user_id', user.id).gte('created_at', since7d),
+  ])
+
+  const modelUsageByProvider: Record<string, { runs: number; in: number; out: number }> = {}
+  for (const m of (modelUsage ?? [])) {
+    const p = String(m.provider)
+    const u = modelUsageByProvider[p] ?? { runs: 0, in: 0, out: 0 }
+    u.runs++; u.in += (m.input_tokens as number) ?? 0; u.out += (m.output_tokens as number) ?? 0
+    modelUsageByProvider[p] = u
+  }
+
+  const tool_autonomy = {
+    runs_7d: toolRunsTotal ?? 0,
+    failed_24h: toolRunsFailed ?? 0,
+    blocked_or_pending: toolRunsBlocked ?? 0,
+    recent_failures: (recentFailedTools ?? []).map(r => ({
+      id: r.id, action: r.action,
+      error_message: ((r.error_message as string) ?? '').slice(0, 200),
+      started_at: r.started_at,
+    })),
+    model_usage: Object.entries(modelUsageByProvider).map(([provider, u]) => ({
+      provider, runs: u.runs, input_tokens: u.in, output_tokens: u.out,
+    })),
+  }
+
   return Response.json({
     system_matrix,
     execution_pulse,
@@ -223,6 +268,7 @@ export async function GET() {
     ceo_decisions,
     auto_loop_status,
     growth_loop,
+    tool_autonomy,
     generated_at: new Date().toISOString(),
   })
 }

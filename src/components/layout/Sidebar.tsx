@@ -48,6 +48,7 @@ const nav = [
     group: 'System',
     items: [
       { href: '/tools',             label: 'Tools',          icon: Wrench },
+      { href: '/tools/autonomy',    label: 'Tool Autonomy',  icon: ShieldCheck },
       { href: '/settings',          label: 'Second Brain',   icon: Brain },
       { href: '/system-readiness',  label: 'Beta Readiness', icon: ShieldCheck },
     ],

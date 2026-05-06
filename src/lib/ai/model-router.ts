@@ -89,3 +89,157 @@ export function listAvailableProviders(): ModelProvider[] {
   if (HAS_GEMINI) providers.push('gemini')
   return providers
 }
+
+// ─────────────────────────────────────────────────
+// V2.2 — Routing for tool-using tasks
+// Maps high-level workflow stages → provider preference.
+// ─────────────────────────────────────────────────
+export type TaskStage =
+  | 'engineering' | 'architecture' | 'debug'
+  | 'qa' | 'review' | 'risk'
+  | 'research' | 'growth' | 'content'
+  | 'migration_draft' | 'migration_qa'
+
+export function routeModelForTask(stage: TaskStage): ModelChoice {
+  switch (stage) {
+    case 'engineering':
+    case 'architecture':
+    case 'debug':
+    case 'migration_draft':
+      return { provider: 'anthropic', model: ANTHROPIC_DEFAULT,
+        reason: `${stage} → Claude (deep code reasoning)` }
+    case 'qa':
+    case 'review':
+    case 'risk':
+    case 'migration_qa':
+      return HAS_OPENAI
+        ? { provider: 'openai', model: OPENAI_DEFAULT, reason: `${stage} → GPT (independent reviewer)` }
+        : { provider: 'anthropic', model: ANTHROPIC_DEFAULT, reason: `${stage} → Claude (no OPENAI_API_KEY)` }
+    case 'research':
+    case 'growth':
+    case 'content':
+      return HAS_OPENAI
+        ? { provider: 'openai', model: OPENAI_DEFAULT, reason: `${stage} → GPT (broader knowledge)` }
+        : { provider: 'anthropic', model: ANTHROPIC_DEFAULT, reason: `${stage} → Claude (no OPENAI_API_KEY)` }
+  }
+}
+
+// ─────────────────────────────────────────────────
+// V2.2 — Provider call shims (lazy import for size)
+// ─────────────────────────────────────────────────
+export interface ModelCallInput {
+  system?: string
+  prompt: string
+  max_tokens?: number
+  temperature?: number
+}
+
+export interface ModelCallOutput {
+  text: string
+  input_tokens: number
+  output_tokens: number
+  model: string
+  provider: ModelProvider
+  duration_ms: number
+}
+
+export async function callClaude(input: ModelCallInput, modelOverride?: string): Promise<ModelCallOutput> {
+  const start = Date.now()
+  // Lazy import to avoid bundling SDK when not used
+  const { default: Anthropic } = await import('@anthropic-ai/sdk')
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  const model = modelOverride ?? ANTHROPIC_DEFAULT
+  const res = await client.messages.create({
+    model,
+    max_tokens: input.max_tokens ?? 4096,
+    temperature: input.temperature ?? 0.4,
+    system: input.system,
+    messages: [{ role: 'user', content: input.prompt }],
+  })
+  const text = res.content.map(b => b.type === 'text' ? b.text : '').join('')
+  return {
+    text,
+    input_tokens: res.usage?.input_tokens ?? 0,
+    output_tokens: res.usage?.output_tokens ?? 0,
+    model,
+    provider: 'anthropic',
+    duration_ms: Date.now() - start,
+  }
+}
+
+export async function callOpenAI(input: ModelCallInput, modelOverride?: string): Promise<ModelCallOutput> {
+  if (!HAS_OPENAI) throw new Error('OPENAI_API_KEY not configured')
+  const start = Date.now()
+  const model = modelOverride ?? OPENAI_DEFAULT
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: input.max_tokens ?? 4096,
+      temperature: input.temperature ?? 0.4,
+      messages: [
+        ...(input.system ? [{ role: 'system', content: input.system }] : []),
+        { role: 'user', content: input.prompt },
+      ],
+    }),
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`OpenAI ${res.status}: ${body.slice(0, 300)}`)
+  }
+  const data = await res.json() as {
+    choices: Array<{ message: { content: string } }>
+    usage?: { prompt_tokens?: number; completion_tokens?: number }
+  }
+  return {
+    text: data.choices[0]?.message?.content ?? '',
+    input_tokens: data.usage?.prompt_tokens ?? 0,
+    output_tokens: data.usage?.completion_tokens ?? 0,
+    model,
+    provider: 'openai',
+    duration_ms: Date.now() - start,
+  }
+}
+
+export async function callModel(input: ModelCallInput, choice: ModelChoice): Promise<ModelCallOutput> {
+  if (choice.provider === 'anthropic') return callClaude(input, choice.model)
+  if (choice.provider === 'openai')    return callOpenAI(input, choice.model)
+  throw new Error(`Provider ${choice.provider} not implemented yet`)
+}
+
+// ─────────────────────────────────────────────────
+// V2.2 — Persist a model run for audit + cost
+// ─────────────────────────────────────────────────
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+export async function recordModelRun(
+  supabase: SupabaseClient, userId: string,
+  args: {
+    task_run_id?: string | null
+    choice: ModelChoice
+    agent_type?: string
+    task_kind?: string
+    output: ModelCallOutput
+    status: 'success' | 'error'
+    error_message?: string
+  },
+): Promise<void> {
+  await supabase.from('model_runs').insert({
+    user_id: userId,
+    task_run_id: args.task_run_id ?? null,
+    provider: args.choice.provider,
+    model: args.choice.model,
+    agent_type: args.agent_type ?? null,
+    task_kind: args.task_kind ?? null,
+    reason: args.choice.reason,
+    input_tokens: args.output.input_tokens,
+    output_tokens: args.output.output_tokens,
+    duration_ms: args.output.duration_ms,
+    status: args.status,
+    error_message: args.error_message ?? null,
+  })
+}

@@ -24,6 +24,59 @@ async function vc<T>(cfg: VercelConfig, path: string): Promise<T> {
   return res.json() as Promise<T>
 }
 
+async function vcPost<T>(cfg: VercelConfig, path: string, body: unknown): Promise<T> {
+  const sep = path.includes('?') ? '&' : '?'
+  const url = VC_BASE + path + (cfg.team_id ? `${sep}teamId=${encodeURIComponent(cfg.team_id)}` : '')
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${cfg.access_token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const txt = await res.text()
+    throw new Error(`Vercel POST ${path} → ${res.status}: ${txt.slice(0, 300)}`)
+  }
+  return res.json() as Promise<T>
+}
+
+async function listProjects(p: { limit?: number }, cfg: VercelConfig) {
+  const limit = Math.min(Math.max(p?.limit ?? 20, 1), 100)
+  const data = await vc<{ projects: Array<{ id: string; name: string; framework?: string; createdAt?: number }> }>(
+    cfg, `/v9/projects?limit=${limit}`)
+  return {
+    projects: data.projects.map(p => ({
+      id: p.id, name: p.name, framework: p.framework ?? null,
+      created_at: p.createdAt ? new Date(p.createdAt).toISOString() : null,
+    })),
+  }
+}
+
+async function triggerPreviewDeploy(p: { project: string; git_branch: string; git_repo?: string }, cfg: VercelConfig) {
+  if (!p.project) throw new Error('project (id or name) required')
+  if (!p.git_branch) throw new Error('git_branch required')
+  if (p.git_branch === 'main' || p.git_branch === 'master')
+    throw new Error('main/master maps to production — preview deploy must use a feature branch')
+
+  const body = {
+    name: p.project,
+    target: 'preview',
+    gitSource: p.git_repo
+      ? { type: 'github', repo: p.git_repo, ref: p.git_branch }
+      : { ref: p.git_branch },
+  }
+  const out = await vcPost<{ id?: string; url?: string; readyState?: string }>(
+    cfg, '/v13/deployments', body)
+  return {
+    deployment_id: out.id ?? null,
+    url: out.url ? `https://${out.url}` : null,
+    state: out.readyState ?? 'queued',
+    target: 'preview',
+  }
+}
+
 async function getProject(p: { project?: string }, cfg: VercelConfig) {
   const id = p?.project || cfg.project_id
   if (!id) throw new Error('未指定 project（id 或 name），且未配置默认 project_id')
@@ -98,8 +151,15 @@ export const vercelTool: ToolHandler = {
     if (!cfg?.access_token) throw new Error('Vercel 工具未配置 access_token')
     switch (action) {
       case 'getProject':          return getProject(params as { project?: string }, cfg)
+      case 'listProjects':        return listProjects(params as { limit?: number }, cfg)
       case 'listDeployments':     return listDeployments(params as { project?: string; limit?: number }, cfg)
       case 'getDeploymentStatus': return getDeploymentStatus(params as { deployment_id: string }, cfg)
+      case 'triggerPreviewDeploy':
+        return triggerPreviewDeploy(params as { project: string; git_branch: string; git_repo?: string }, cfg)
+      case 'triggerProductionDeploy':
+        throw new Error('triggerProductionDeploy is L4 — CEO approval required; not auto-executable')
+      case 'updateEnv':
+        throw new Error('updateEnv is L4 — CEO approval required; not auto-executable')
       default: throw new Error(`Unknown action: ${action}`)
     }
   },
