@@ -142,14 +142,21 @@ export default function SystemsPage() {
             <div className="text-center py-16">
               <Network size={28} className="mx-auto mb-3 text-[var(--text-muted)]" />
               <p className="text-sm" style={{ color: 'var(--text-primary)' }}>还没有 System</p>
-              <p className="text-[11px] mt-2 mb-4" style={{ color: 'var(--text-muted)' }}>
-                System 是 Project 之上的分组（如「我的创业组合」「客户咨询」），让多项目按业务线统一管理。
+              <p className="text-[11px] mt-2 mb-4 max-w-md mx-auto" style={{ color: 'var(--text-muted)' }}>
+                推荐做法：用 AI 起草整套方案（System + Project + 任务 + 预算 + 汇报节奏），一次到位。
               </p>
-              <button onClick={() => setAdding(true)}
-                className="inline-flex items-center gap-1.5 text-xs px-4 py-2 rounded-lg"
-                style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--accent-light)', border: '1px solid var(--border-strong)' }}>
-                <Plus size={12} /> Create your first system
-              </button>
+              <div className="flex items-center justify-center gap-2">
+                <Link href="/new-venture"
+                  className="inline-flex items-center gap-1.5 text-xs px-4 py-2 rounded-lg"
+                  style={{ background: 'linear-gradient(90deg, #f472b6, #a78bfa)', color: '#fff' }}>
+                  ✨ 用 AI 起草 Venture
+                </Link>
+                <button onClick={() => setAdding(true)}
+                  className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg"
+                  style={{ background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border)' }}>
+                  <Plus size={11} /> 手动创建空白 System
+                </button>
+              </div>
             </div>
           )}
 

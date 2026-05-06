@@ -75,10 +75,16 @@ export default function Sidebar() {
   return (
     <aside className="w-52 border-r border-[var(--border)] flex flex-col py-4 px-2 shrink-0"
       style={{ background: 'rgba(7,8,15,0.97)', backdropFilter: 'blur(20px)' }}>
-      <div className="px-3 mb-5">
+      <div className="px-3 mb-3">
         <p className="text-[10px] font-mono tracking-widest uppercase" style={{ color: 'var(--accent-light)' }}>Super OS</p>
         <p className="text-[9px] mt-0.5" style={{ color: 'var(--text-muted)' }}>Multi-Agent Execution OS</p>
       </div>
+
+      <Link href="/new-venture"
+        className="mx-2 mb-4 flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-lg font-semibold"
+        style={{ background: 'linear-gradient(90deg, #f472b6, #a78bfa)', color: '#fff' }}>
+        ✨ 新 Venture
+      </Link>
 
       <nav className="flex-1 overflow-auto space-y-4">
         {nav.concat(isAdmin ? [{

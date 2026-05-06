@@ -79,6 +79,11 @@ export default function MissionControlPage() {
             <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Mission Control</h1>
           </div>
           <div className="flex items-center gap-3">
+            <Link href="/new-venture"
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg"
+              style={{ background: 'linear-gradient(90deg, #f472b6, #a78bfa)', color: '#fff' }}>
+              <Sparkles size={11} /> + 新 Venture
+            </Link>
             <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
               更新于 {new Date(data.generated_at).toLocaleTimeString('zh-CN')}
             </span>
@@ -383,9 +388,14 @@ export default function MissionControlPage() {
               </div>
               {data.system_matrix.length === 0 ? (
                 <div>
-                  <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>还未创建任何 System</p>
-                  <Link href="/systems" className="text-[10px] inline-flex items-center gap-1 text-cyan-400">
-                    → Create your first system
+                  <p className="text-xs mb-2" style={{ color: 'var(--text-primary)' }}>从聊一句话开始你的第一个 venture</p>
+                  <p className="text-[10px] mb-3" style={{ color: 'var(--text-muted)' }}>
+                    AI 联合创始人会起草 System / Project / 任务 / 预算 / 汇报节奏，你审一遍就开干。
+                  </p>
+                  <Link href="/new-venture"
+                    className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg"
+                    style={{ background: 'linear-gradient(90deg, #f472b6, #a78bfa)', color: '#fff' }}>
+                    <Sparkles size={11} /> 启动新 Venture
                   </Link>
                 </div>
               ) : (
