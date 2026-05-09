@@ -136,7 +136,8 @@ function ResponseCard({ resp }: { resp: CopilotResponse }) {
           <li>· "我的系统" / "系统列表" → 列出所有 System</li>
           <li>· "我的项目" → 列出活跃项目</li>
           <li>· "看下增长实验" → 列出实验</li>
-          <li>· "CTO 汇报一下" → 调出工程经理报告</li>
+          <li>· "CTO 汇报一下" / "让所有经理汇报" → Manager Report（无则即时生成）</li>
+          <li>· "今天谁有问题" / "哪个项目卡住了" → 阻塞总览</li>
           <li>· "想做一个 X" → 跳到 ✨ 新 Venture (带预填)</li>
           <li>· 其他自然语言 → AI 联合创始人对话</li>
         </ul>
@@ -238,24 +239,83 @@ function ResponseCard({ resp }: { resp: CopilotResponse }) {
   }
 
   if (intent.kind === 'manager_report') {
-    const reports = (payload.reports as Array<{ id: string; role: string; summary: string; source: string; generated_at: string }>) ?? []
+    const reports = (payload.reports as Array<{ id: string; role: string; title: string; summary: string; source: string; generated_at: string; needs_user_intervention: boolean; blockers: string[]; risks: string[]; next_actions: string[]; confidence_score: number }>) ?? []
     const requested = (payload.requested_role as string | null) ?? null
+    const justGenerated = (payload.just_generated as boolean) ?? false
     return (
-      <SectionList icon={Bot} title={requested ? `${requested} 报告` : '经理报告'} count={reports.length} accent="text-violet-400"
-        empty="还没有经理报告 — Mission Control 上方会有「Generate by running system analysis」的引导"
-        emptyAction={{ label: '前往 Mission Control', href: '/mission-control' }}>
-        {reports.map(r => (
-          <div key={r.id} className="text-[11px] p-2 rounded-lg"
-            style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
-            <div className="flex items-center gap-2 mb-1">
-              <code className="text-[9px] font-mono text-violet-400 px-1 rounded"
-                style={{ background: 'rgba(167,139,250,0.1)' }}>{r.role}</code>
-              <span className="text-[9px]" style={{ color: 'var(--text-muted)' }}>{r.source} · {new Date(r.generated_at).toLocaleString('zh-CN')}</span>
+      <>
+        {justGenerated && (
+          <p className="text-[10px] mb-2 text-emerald-400">✨ 已为你即时生成最新报告</p>
+        )}
+        <SectionList icon={Bot} title={requested ? `${requested} 报告` : '经理报告'} count={reports.length} accent="text-violet-400"
+          empty="还没有经理报告"
+          emptyAction={{ label: '前往 Mission Control 让经理汇报', href: '/mission-control' }}>
+          {reports.slice(0, 4).map(r => (
+            <div key={r.id} className="text-[11px] p-2 rounded-lg"
+              style={{
+                background: 'var(--bg-base)',
+                border: r.needs_user_intervention ? '1px solid rgba(248,113,113,0.3)' : '1px solid var(--border)',
+              }}>
+              <div className="flex items-center gap-2 mb-1">
+                <code className="text-[9px] font-mono text-violet-400 px-1 rounded"
+                  style={{ background: 'rgba(167,139,250,0.1)' }}>{r.role}</code>
+                <span className="text-[9px]" style={{ color: 'var(--text-muted)' }}>
+                  conf {Math.round((r.confidence_score ?? 0) * 100)}% · {new Date(r.generated_at).toLocaleTimeString('zh-CN')}
+                </span>
+                {r.needs_user_intervention && (
+                  <span className="ml-auto text-[9px] text-red-400">需介入</span>
+                )}
+              </div>
+              <p style={{ color: 'var(--text-primary)' }}>{r.summary || '(空)'}</p>
+              {(r.blockers?.length > 0) && (
+                <p className="text-[10px] mt-1 text-amber-400">阻塞: {r.blockers.slice(0, 2).join('; ')}</p>
+              )}
+              {(r.next_actions?.length > 0) && (
+                <p className="text-[10px] mt-1 text-cyan-400">下一步: {r.next_actions[0]}</p>
+              )}
             </div>
-            <p style={{ color: 'var(--text-secondary)' }}>{r.summary || '(空)'}</p>
+          ))}
+        </SectionList>
+      </>
+    )
+  }
+
+  if (intent.kind === 'blockers_overview') {
+    const blocked = (payload.blocked_reports as Array<{ id: string; role: string; summary: string; blockers: string[]; needs_user_intervention: boolean }>) ?? []
+    const stuck = (payload.stuck_tasks as Array<{ id: string; title: string; project_id: string; updated_at: string }>) ?? []
+    return (
+      <>
+        <SectionList icon={ShieldAlert} title="经理报告中的阻塞" count={blocked.length} accent="text-amber-400"
+          empty="🎉 经理报告里没有阻塞" emptyAction={{ label: 'Mission Control', href: '/mission-control' }}>
+          {blocked.map(r => (
+            <div key={r.id} className="text-[11px] p-2 rounded-lg"
+              style={{ background: 'var(--bg-base)', border: '1px solid rgba(251,191,36,0.3)' }}>
+              <div className="flex items-center gap-2 mb-0.5">
+                <code className="text-[9px] font-mono px-1 rounded text-violet-400"
+                  style={{ background: 'rgba(167,139,250,0.1)' }}>{r.role}</code>
+                <span style={{ color: 'var(--text-primary)' }}>{r.blockers[0] ?? r.summary}</span>
+              </div>
+            </div>
+          ))}
+        </SectionList>
+        {stuck.length > 0 && (
+          <div className="mt-3">
+            <SectionList icon={CheckSquare} title="48h 没动的任务" count={stuck.length} accent="text-orange-400"
+              empty="" emptyAction={{ label: '', href: '#' }}>
+              {stuck.map(t => (
+                <Link key={t.id} href={`/projects/${t.project_id}/tasks`}
+                  className="flex items-center gap-2 text-[11px] p-2 rounded-lg hover:bg-white/5"
+                  style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+                  <span style={{ color: 'var(--text-primary)' }}>{t.title}</span>
+                  <span className="ml-auto text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                    {new Date(t.updated_at).toLocaleDateString('zh-CN')}
+                  </span>
+                </Link>
+              ))}
+            </SectionList>
           </div>
-        ))}
-      </SectionList>
+        )}
+      </>
     )
   }
 

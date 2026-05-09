@@ -312,17 +312,28 @@ export interface SystemOverview {
   owner_manager: { id: string; role: string; name: string } | null
 }
 
+export type ManagerReportType = 'daily' | 'weekly' | 'project' | 'risk' | 'growth' | 'execution'
+
 export interface ManagerReport {
   id: string
   user_id: string
   manager_id: string | null
   project_id: string | null
   system_id: string | null
+  execution_unit_id: string | null
   role: string
   report_period: 'daily' | 'weekly' | 'on_demand'
+  report_type: ManagerReportType
+  title: string
   summary: string
+  blockers: string[]
+  risks: string[]
+  next_actions: string[]
+  confidence_score: number
+  needs_user_intervention: boolean
   metrics: Record<string, unknown>
   source: 'rule_based' | 'llm' | 'manual'
+  read_at: string | null
   generated_at: string
 }
 

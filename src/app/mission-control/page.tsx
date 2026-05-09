@@ -7,6 +7,7 @@ import {
   Bot, Sparkles, ExternalLink, TrendingUp, TrendingDown,
 } from 'lucide-react'
 import CommandBar from '@/components/copilot/CommandBar'
+import ManagerBriefings from '@/components/manager-reports/ManagerBriefings'
 
 interface MissionData {
   system_matrix: Array<{ id: string; name: string; description: string; status: string; project_count: number; projects: Array<{ id: string; name: string; status: string; current_stage: number }> }>
@@ -100,6 +101,9 @@ export default function MissionControlPage() {
 
           {/* Copilot command bar — top of cockpit */}
           <CommandBar />
+
+          {/* Manager Briefings — V2.3 */}
+          <ManagerBriefings />
 
           {/* Auto-loop hero */}
           <div className="rounded-xl p-6 mb-6"

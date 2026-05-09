@@ -12,7 +12,8 @@ export type CopilotIntent =
   | { kind: 'list_growth' }
   | { kind: 'nav'; route: string; label: string }
   | { kind: 'start_venture'; seed: string }
-  | { kind: 'manager_report'; role?: string }
+  | { kind: 'manager_report'; role?: string; auto_generate?: boolean }
+  | { kind: 'blockers_overview' }
   | { kind: 'help' }
   | { kind: 'chat'; query: string }
 
@@ -94,22 +95,53 @@ const RULES: Rule[] = [
     build: () => ({ kind: 'list_growth' }),
   },
 
-  // Manager reports
+  // Blockers overview — must come BEFORE manager_report rules so phrases
+  // like "今天谁有问题" / "哪个项目卡住了" route here.
   {
-    pattern: /(cto|工程经理).*(汇报|报告)/i,
-    build: () => ({ kind: 'manager_report', role: 'engineering_manager' }),
+    any: [
+      '今天谁有问题', '谁有问题', '哪个项目卡住', '哪个项目卡住了',
+      '哪里卡住', '哪里卡住了', '谁卡住了', '今天有什么阻塞',
+      'blockers', 'who is blocked', 'what is blocked',
+    ],
+    build: () => ({ kind: 'blockers_overview' }),
+  },
+
+  // Manager reports — extended to also trigger on "汇报" / "报告" / "状态"
+  {
+    pattern: /(cto|工程经理).*(汇报|报告|状态)/i,
+    build: () => ({ kind: 'manager_report', role: 'engineering_manager', auto_generate: true }),
+  },
+  {
+    pattern: /(ceo).*(汇报|报告|判断)/i,
+    build: () => ({ kind: 'manager_report', role: 'ceo', auto_generate: true }),
+  },
+  {
+    pattern: /(coo|运营经理|finance manager|财务经理).*(汇报|报告)/i,
+    build: () => ({ kind: 'manager_report', role: 'finance_manager', auto_generate: true }),
   },
   {
     pattern: /(cgo|增长经理|growth manager).*(汇报|报告)/i,
-    build: () => ({ kind: 'manager_report', role: 'growth_manager' }),
+    build: () => ({ kind: 'manager_report', role: 'growth_manager', auto_generate: true }),
   },
   {
-    pattern: /(cpo|设计经理).*(汇报|报告)/i,
-    build: () => ({ kind: 'manager_report', role: 'design_manager' }),
+    pattern: /(cpo|设计经理|product manager|产品经理).*(汇报|报告)/i,
+    build: () => ({ kind: 'manager_report', role: 'design_manager', auto_generate: true }),
   },
   {
-    any: ['经理汇报', '让经理汇报', '所有经理报告', '经理报告', 'manager report'],
-    build: () => ({ kind: 'manager_report' }),
+    pattern: /(qa|测试).*(汇报|报告)/i,
+    build: () => ({ kind: 'manager_report', role: 'qa_manager', auto_generate: true }),
+  },
+  {
+    pattern: /(cso|风险|risk).*(汇报|报告)/i,
+    build: () => ({ kind: 'manager_report', role: 'risk_manager', auto_generate: true }),
+  },
+  {
+    pattern: /(增长汇报|增长报告)/i,
+    build: () => ({ kind: 'manager_report', role: 'growth_manager', auto_generate: true }),
+  },
+  {
+    any: ['经理汇报', '让经理汇报', '所有经理报告', '经理报告', 'manager report', '让所有经理汇报'],
+    build: () => ({ kind: 'manager_report', auto_generate: true }),
   },
 ]
 
@@ -134,9 +166,10 @@ export function classifyIntent(rawInput: string): CopilotIntent {
 // Quick-action menu shown on the empty Copilot panel
 export const QUICK_ACTIONS: Array<{ label: string; sample: string; icon: string }> = [
   { label: '今天该做什么',   sample: '今天要做什么',     icon: '📋' },
+  { label: '哪里卡住了',     sample: '今天谁有问题',     icon: '🚧' },
   { label: '看待审批',       sample: '看下待审批',       icon: '🛡' },
-  { label: '看我的系统',     sample: '我的系统',         icon: '🌐' },
   { label: '让 CTO 汇报',    sample: 'CTO 汇报一下',     icon: '⚙️' },
+  { label: '让所有经理汇报', sample: '所有经理报告',     icon: '🤖' },
   { label: '看增长实验',     sample: '看下增长实验',     icon: '📈' },
   { label: '启动新创业',     sample: '我想做一个新项目', icon: '✨' },
 ]

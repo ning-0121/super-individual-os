@@ -78,16 +78,44 @@ describe('Copilot intent classifier', () => {
     it('generic manager report', () => {
       const i = classifyIntent('让经理汇报一下')
       expect(i.kind).toBe('manager_report')
+      if (i.kind === 'manager_report') expect(i.auto_generate).toBe(true)
     })
     it('CTO 汇报', () => {
       const i = classifyIntent('CTO 汇报一下')
       expect(i.kind).toBe('manager_report')
       if (i.kind === 'manager_report') expect(i.role).toBe('engineering_manager')
     })
+    it('CEO 判断 → ceo role', () => {
+      const i = classifyIntent('CEO 你的判断是什么')
+      expect(i.kind).toBe('manager_report')
+      if (i.kind === 'manager_report') expect(i.role).toBe('ceo')
+    })
     it('CGO 报告', () => {
       const i = classifyIntent('CGO 出个增长报告')
       expect(i.kind).toBe('manager_report')
       if (i.kind === 'manager_report') expect(i.role).toBe('growth_manager')
+    })
+    it('增长汇报 → growth_manager', () => {
+      const i = classifyIntent('增长汇报')
+      expect(i.kind).toBe('manager_report')
+      if (i.kind === 'manager_report') expect(i.role).toBe('growth_manager')
+    })
+    it('COO 汇报 → finance_manager', () => {
+      const i = classifyIntent('COO 汇报一下')
+      expect(i.kind).toBe('manager_report')
+      if (i.kind === 'manager_report') expect(i.role).toBe('finance_manager')
+    })
+  })
+
+  describe('blockers overview', () => {
+    it('"今天谁有问题"', () => {
+      expect(classifyIntent('今天谁有问题').kind).toBe('blockers_overview')
+    })
+    it('"哪个项目卡住了"', () => {
+      expect(classifyIntent('哪个项目卡住了').kind).toBe('blockers_overview')
+    })
+    it('"who is blocked"', () => {
+      expect(classifyIntent('who is blocked today?').kind).toBe('blockers_overview')
     })
   })
 

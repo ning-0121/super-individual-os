@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { apiError } from '@/lib/observability'
 import { classifyIntent, type CopilotIntent } from '@/lib/ai/copilot-intent'
+import { generateManagerReport, listManagerReports } from '@/services/manager-reports'
 
 // POST /api/ai/copilot
 // Body: { input: string }
@@ -69,12 +70,52 @@ async function loadPayload(
       return { experiments: data ?? [] }
     }
     case 'manager_report': {
-      let q = supabase.from('manager_reports')
-        .select('id, role, summary, source, generated_at, system_id')
-        .eq('user_id', userId).order('generated_at', { ascending: false }).limit(10)
-      if (intent.role) q = q.eq('role', intent.role)
-      const { data } = await q
-      return { reports: data ?? [], requested_role: intent.role ?? null }
+      let reports = await listManagerReports(supabase, userId, {
+        role: intent.role, limit: 10,
+      })
+      let just_generated = false
+
+      // Auto-generate when no report exists for the requested role and the
+      // user explicitly asked for a fresh one.
+      if (intent.auto_generate && reports.length === 0) {
+        if (intent.role) {
+          await generateManagerReport(supabase, userId, {
+            role: intent.role, report_type: 'daily',
+          })
+        } else {
+          // "All managers" — generate one per featured role
+          const ROLES = ['ceo', 'engineering_manager', 'finance_manager', 'growth_manager', 'design_manager']
+          await Promise.all(ROLES.map(role =>
+            generateManagerReport(supabase, userId, { role, report_type: 'daily' }),
+          ))
+        }
+        reports = await listManagerReports(supabase, userId, { role: intent.role, limit: 10 })
+        just_generated = true
+      }
+      return { reports, requested_role: intent.role ?? null, just_generated }
+    }
+    case 'blockers_overview': {
+      // Pull most recent reports across all roles, surface only those with
+      // blockers or needs_user_intervention.
+      const all = await listManagerReports(supabase, userId, { limit: 30 })
+      // Latest per role
+      const latest = new Map<string, typeof all[number]>()
+      for (const r of all) if (!latest.has(r.role)) latest.set(r.role, r)
+      const blocked = Array.from(latest.values()).filter(r =>
+        r.needs_user_intervention || (r.blockers ?? []).length > 0
+      )
+      // Also surface raw blocked tasks (open + 48h no activity)
+      const since48h = new Date(Date.now() - 48 * 3600 * 1000).toISOString()
+      const { data: stuckTasks } = await supabase.from('tasks')
+        .select('id, title, project_id, updated_at, workflow_status')
+        .eq('user_id', userId)
+        .not('workflow_status', 'in', '(completed,approved,archived)')
+        .lt('updated_at', since48h)
+        .order('updated_at', { ascending: true }).limit(10)
+      return {
+        blocked_reports: blocked,
+        stuck_tasks: stuckTasks ?? [],
+      }
     }
     case 'help':
     case 'nav':
