@@ -6,6 +6,7 @@ import {
   Loader2, RefreshCw, Activity, AlertTriangle, Crown, Layers,
   Bot, Sparkles, ExternalLink, TrendingUp, TrendingDown,
 } from 'lucide-react'
+import CommandBar from '@/components/copilot/CommandBar'
 
 interface MissionData {
   system_matrix: Array<{ id: string; name: string; description: string; status: string; project_count: number; projects: Array<{ id: string; name: string; status: string; current_stage: number }> }>
@@ -96,6 +97,9 @@ export default function MissionControlPage() {
         </div>
 
         <div className="flex-1 overflow-auto p-6 max-w-6xl">
+
+          {/* Copilot command bar — top of cockpit */}
+          <CommandBar />
 
           {/* Auto-loop hero */}
           <div className="rounded-xl p-6 mb-6"

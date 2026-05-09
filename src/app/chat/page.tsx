@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { AlertTriangle, Brain, ChevronRight, Plus, Trash2 } from 'lucide-react'
+import CommandBar from '@/components/copilot/CommandBar'
 import type { AIMode } from '@/lib/claude'
 import { MODE_LABELS } from '@/lib/claude'
 import type { ChatMode } from '@/types'
@@ -230,18 +231,24 @@ export default function ChatPage() {
 
           {!loadingHist && messages.length === 0 && (
             <div className="max-w-2xl mx-auto mt-8">
-              <p className="text-center text-[var(--text-muted)] text-sm mb-6">
-                {MODE_LABELS[mode].label} · 选择快捷入口或直接输入
+              <p className="text-center text-[var(--text-muted)] text-xs mb-3 uppercase tracking-wider">
+                AI 联合创始人 · 命令栏
               </p>
-              <div className="space-y-2">
-                {QUICK_STARTS.map(({ text, mode: m }) => (
-                  <button key={text} onClick={() => { setMode(m); send(text) }}
-                    className="w-full text-left px-4 py-3.5 glass glass-hover rounded-xl text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors group">
-                    <span className="text-[10px] text-[var(--text-muted)] mr-2 uppercase">{MODE_LABELS[m].label}</span>
-                    {text}
-                    <span className="text-[var(--text-muted)] ml-2 group-hover:text-[var(--accent-light)]">→</span>
-                  </button>
-                ))}
+              <CommandBar onChat={(q) => send(q)} />
+              <div className="mt-6">
+                <p className="text-[10px] uppercase tracking-wider mb-2 text-center" style={{ color: 'var(--text-muted)' }}>
+                  或选择策略入口（{MODE_LABELS[mode].label}）
+                </p>
+                <div className="space-y-2">
+                  {QUICK_STARTS.map(({ text, mode: m }) => (
+                    <button key={text} onClick={() => { setMode(m); send(text) }}
+                      className="w-full text-left px-4 py-3 glass glass-hover rounded-xl text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors group">
+                      <span className="text-[10px] text-[var(--text-muted)] mr-2 uppercase">{MODE_LABELS[m].label}</span>
+                      {text}
+                      <span className="text-[var(--text-muted)] ml-2 group-hover:text-[var(--accent-light)]">→</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}
