@@ -6,6 +6,8 @@ import { getTasks, createTask, updateTaskStatus, deleteTask, updateTask } from '
 import { getExecutionUnits } from '@/services/execution-units'
 import { dispatch } from '@/lib/ai/dispatch-engine'
 import { Plus, Bot, User, Cpu, Clock, Zap, Filter } from 'lucide-react'
+import FocusGuardModal from '@/components/project-context/FocusGuardModal'
+import { useFocusGuard } from '@/lib/project-context/use-focus-guard'
 
 const COLUMNS: { id: TaskStatus; label: string; color: string }[] = [
   { id: 'todo',        label: 'Focus Queue', color: 'text-[var(--accent-light)]' },
@@ -27,21 +29,36 @@ const UNIT_COLOR: Record<string, string> = {
   human: 'text-cyan-400', ai: 'text-violet-400', agent: 'text-emerald-400',
 }
 
+interface ProjectLite { id: string; name: string }
+
 export default function TasksPage() {
   const [tasks, setTasks]           = useState<Task[]>([])
   const [units, setUnits]           = useState<ExecutionUnit[]>([])
+  const [projects, setProjects]     = useState<ProjectLite[]>([])
   const [loading, setLoading]       = useState(true)
   const [newTitle, setNewTitle]     = useState('')
   const [newPriority, setNewPriority] = useState<TaskPriority>('important')
   const [newDueDate, setNewDueDate] = useState('')
+  const [newProjectId, setNewProjectId] = useState<string>('')
   const [adding, setAdding]         = useState(false)
   // Filters
   const [filterPriority, setFilterPriority] = useState<TaskPriority | 'all'>('all')
   const [filterUnit, setFilterUnit]         = useState<string>('all')
 
+  // V2.5+ — Focus guard for off-focus task creation in locked projects
+  const guard = useFocusGuard()
+
   useEffect(() => {
-    Promise.all([getTasks(), getExecutionUnits()])
-      .then(([t, u]) => { setTasks(t); setUnits(u) })
+    Promise.all([
+      getTasks(),
+      getExecutionUnits(),
+      fetch('/api/projects').then(r => r.ok ? r.json() : []).catch(() => []),
+    ])
+      .then(([t, u, p]) => {
+        setTasks(t)
+        setUnits(u)
+        setProjects(Array.isArray(p) ? p.map((x: { id: string; name: string }) => ({ id: x.id, name: x.name })) : [])
+      })
       .finally(() => setLoading(false))
   }, [])
 
@@ -59,16 +76,29 @@ export default function TasksPage() {
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
     if (!newTitle.trim()) return
+    const title = newTitle.trim()
+
+    // V2.5+ — Focus guard. If project picked, check focus.
+    // Modal only opens when off_focus=true AND project is locked.
+    let proceed = true
+    let focusResult = null
+    if (newProjectId) {
+      const out = await guard.check({ projectId: newProjectId, taskTitle: title })
+      proceed = out.proceed
+      focusResult = out.result
+    }
+    if (!proceed) return   // User cancelled → don't create
 
     const newTask: Partial<Task> = {
-      title: newTitle.trim(),
+      title,
       status: 'todo',
       priority: newPriority,
       due_date: newDueDate || null,
+      project_id: newProjectId || null,
     }
 
     // Auto-dispatch
-    const mockTask = { ...newTask, id: '', user_id: '', project_id: null, description: '',
+    const mockTask = { ...newTask, id: '', user_id: '', project_id: newProjectId || null, description: '',
       assignee: '', execution_unit_id: null, created_at: '', updated_at: '' } as Task
     const result = dispatch(mockTask, units)
     if (result) newTask.execution_unit_id = result.recommended.id
@@ -76,7 +106,28 @@ export default function TasksPage() {
     const t = await createTask(newTask)
     const unit = units.find(u => u.id === t.execution_unit_id)
     setTasks(prev => [{ ...t, execution_unit: unit }, ...prev])
-    setNewTitle(''); setNewDueDate(''); setAdding(false)
+
+    // V2.5+ — Log a 'risk' activity if the user knowingly created an off-focus task
+    if (newProjectId && focusResult?.off_focus && focusResult.locked) {
+      await fetch(`/api/projects/${newProjectId}/activity`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          activity_type: 'risk',
+          title: 'Off-focus task created',
+          summary: '用户确认创建偏离项目 focus 的任务',
+          metadata: {
+            task_id: t.id,
+            task_title: title,
+            similarity: focusResult.similarity,
+            current_focus: focusResult.current_focus,
+            project_goal: focusResult.project_goal,
+            override: true,
+          },
+        }),
+      }).catch(() => {})
+    }
+
+    setNewTitle(''); setNewDueDate(''); setNewProjectId(''); setAdding(false)
   }
 
   async function handleDelete(id: string) {
@@ -151,6 +202,16 @@ export default function TasksPage() {
               <input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)}
                 className="text-xs rounded-lg px-2 py-2 focus:outline-none"
                 style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-secondary)', colorScheme: 'dark' }} />
+              {/* Project picker (optional) — enables Focus Guard when set */}
+              {projects.length > 0 && (
+                <select value={newProjectId} onChange={e => setNewProjectId(e.target.value)}
+                  className="text-xs rounded-lg px-2 py-2 focus:outline-none"
+                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+                  title="可选：绑定到具体项目（开启 Focus Guard）">
+                  <option value="">— 项目（可选） —</option>
+                  {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              )}
               <button type="submit" className="px-3 py-2 rounded-lg text-sm text-white" style={{ background: 'var(--accent)' }}>添加</button>
               <button type="button" onClick={() => setAdding(false)} className="px-3 py-2 text-sm" style={{ color: 'var(--text-muted)' }}>取消</button>
             </form>
@@ -190,6 +251,15 @@ export default function TasksPage() {
           )}
         </div>
       </main>
+
+      <FocusGuardModal
+        open={guard.modalState.open}
+        result={guard.modalState.result}
+        taskTitle={guard.modalState.taskTitle}
+        loading={guard.modalState.loading}
+        onCancel={guard.cancel}
+        onConfirm={guard.confirm}
+      />
     </div>
   )
 }
