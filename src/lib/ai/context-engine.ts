@@ -1,4 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js'
+import { buildPromptBlockForProject } from '@/services/project-context'
 
 export type AIContext = {
   userSummary: string
@@ -37,7 +38,8 @@ function compositeScore(relevance: number, recency: number, importance: number):
 export async function buildContext(
   supabase: SupabaseClient,
   userId: string,
-  userInput: string
+  userInput: string,
+  opts: { projectId?: string | null } = {},
 ): Promise<{ context: AIContext; prompt: string }> {
 
   // Fetch raw data
@@ -168,5 +170,19 @@ export async function buildContext(
     topConvs.forEach(c => lines.push(`- ${c.title} (${c.mode})`))
   }
 
-  return { context, prompt: lines.join('\n') }
+  // ── V2.5: Project Locked Context takes priority over user-global memory.
+  // Prepend it so the model sees it first and treats it as immutable scope.
+  let prompt = lines.join('\n')
+  if (opts.projectId) {
+    try {
+      const projectBlock = await buildPromptBlockForProject(supabase, userId, opts.projectId)
+      if (projectBlock) {
+        prompt = projectBlock + '\n\n---\n\n' + prompt
+      }
+    } catch {
+      // Best-effort — never fail the chat if context lookup errors.
+    }
+  }
+
+  return { context, prompt }
 }

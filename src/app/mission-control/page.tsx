@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import CommandBar from '@/components/copilot/CommandBar'
 import ManagerBriefings from '@/components/manager-reports/ManagerBriefings'
+import LockedProjectBanner from '@/components/project-context/LockedProjectBanner'
 
 interface MissionData {
   system_matrix: Array<{ id: string; name: string; description: string; status: string; project_count: number; projects: Array<{ id: string; name: string; status: string; current_stage: number }> }>
@@ -104,6 +105,9 @@ export default function MissionControlPage() {
         </div>
 
         <div className="flex-1 overflow-auto p-6 max-w-6xl">
+
+          {/* Locked project banner */}
+          <LockedProjectBanner />
 
           {/* Copilot command bar — top of cockpit */}
           <CommandBar />

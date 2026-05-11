@@ -4,6 +4,7 @@ import { audit } from '@/lib/audit'
 import { reportError } from '@/lib/error-reporter'
 import { resolveAllRequiredRoles } from '@/services/managers'
 import { executeTaskRun } from '@/lib/ai/run-task'
+import { appendActivity } from '@/services/project-context'
 import type { ApprovalRequest } from '@/types'
 
 /**
@@ -86,10 +87,28 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         },
       })
 
+      // V2.5: feed approval into project memory kernel
+      if (r.project_id) {
+        await appendActivity(supabase, user.id, r.project_id, {
+          activity_type: 'approval',
+          title: `已批准 ${r.action_type}`,
+          summary: body.reason ?? '',
+          metadata: { execution_kind: (execution as { kind?: string }).kind, risk_level: r.risk_level },
+        }).catch(() => {})
+      }
+
       return apiOk({ status: 'approved', execution })
     }
 
     // Rejected
+    if (r.project_id) {
+      await appendActivity(supabase, user.id, r.project_id, {
+        activity_type: 'approval',
+        title: `已拒绝 ${r.action_type}`,
+        summary: body.reason ?? '',
+        metadata: { decision: 'rejected', risk_level: r.risk_level },
+      }).catch(() => {})
+    }
     return apiOk({ status: 'rejected' })
   } catch (e) {
     reportError(e, { user_id: user.id, endpoint: '/api/approval-requests/[id]/resolve', method: 'POST' })

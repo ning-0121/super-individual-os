@@ -3,6 +3,7 @@ import { useEffect, useState, use } from 'react'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import Sidebar from '@/components/layout/Sidebar'
+import ProjectContextPanel from '@/components/project-context/ProjectContextPanel'
 import { LayoutDashboard, MessageSquare, CheckSquare, Activity, Package, Wrench, Brain, FileText, Sparkles, ArrowLeft, ChevronRight, Milestone } from 'lucide-react'
 
 interface Project {
@@ -122,8 +123,11 @@ export default function ProjectWorkspaceLayout({
           })}
         </div>
 
-        <div className="flex-1 overflow-auto">
-          {children}
+        <div className="flex-1 flex overflow-hidden">
+          <div className="flex-1 overflow-auto">
+            {children}
+          </div>
+          <ProjectContextPanel projectId={id} />
         </div>
       </main>
     </div>

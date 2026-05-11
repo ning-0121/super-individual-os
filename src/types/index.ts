@@ -487,6 +487,49 @@ export interface ProjectToolGrant {
   created_at: string
 }
 
+// ── V2.5 — Project Memory Kernel ─────────────────────────────────
+export type ProjectActivityType =
+  | 'decision' | 'code_change' | 'deployment' | 'bug'
+  | 'workflow_update' | 'task_update' | 'manager_report'
+  | 'ai_summary' | 'risk' | 'approval' | 'context_update'
+
+export interface ProjectContext {
+  id: string
+  user_id: string
+  project_id: string
+  project_goal: string
+  current_stage: string
+  current_focus: string
+  tech_stack: Record<string, unknown>
+  key_decisions: Array<{ at: string; text: string }>
+  completed_items: Array<{ at: string; text: string }>
+  blockers: Array<{ at: string; text: string }>
+  next_actions: Array<{ at: string; text: string }>
+  forbidden_changes: string[]
+  important_files: string[]
+  database_notes: Record<string, unknown>
+  deployment_notes: string[]
+  active_workflow_id: string | null
+  owner_execution_unit_id: string | null
+  last_ai_summary: string
+  context_version: number
+  locked: boolean
+  locked_at: string | null
+  updated_at: string
+  created_at: string
+}
+
+export interface ProjectActivityLog {
+  id: string
+  user_id: string
+  project_id: string
+  activity_type: ProjectActivityType
+  title: string
+  summary: string
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
 export interface AvatarStateRow {
   id: string
   user_id: string

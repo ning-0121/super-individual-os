@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { apiError } from '@/lib/observability'
 import { generateManagerReport } from '@/services/manager-reports'
+import { appendActivity } from '@/services/project-context'
 import { audit } from '@/lib/audit'
 import type { ManagerReportType } from '@/types'
 
@@ -49,7 +50,21 @@ export async function POST(req: Request) {
       system_id: body.system_id,
       execution_unit_id: body.execution_unit_id,
     })
-    if (rep) reports.push(rep)
+    if (rep) {
+      reports.push(rep)
+      // V2.5: feed into project memory kernel when scoped to a project
+      if (body.project_id) {
+        await appendActivity(supabase, user.id, body.project_id, {
+          activity_type: 'manager_report',
+          title: `${role} 报告 (${body.report_type})`,
+          summary: rep.summary,
+          metadata: {
+            next_action: (rep.next_actions ?? [])[0],
+            confidence: rep.confidence_score,
+          },
+        }).catch(() => {})
+      }
+    }
   }
 
   await audit(supabase, user.id, 'manager_report.generated' as never, {

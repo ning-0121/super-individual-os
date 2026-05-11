@@ -3,6 +3,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { AlertTriangle, Brain, ChevronRight, Plus, Trash2 } from 'lucide-react'
 import CommandBar from '@/components/copilot/CommandBar'
+import LockedProjectBanner from '@/components/project-context/LockedProjectBanner'
 import type { AIMode } from '@/lib/claude'
 import { MODE_LABELS } from '@/lib/claude'
 import type { ChatMode } from '@/types'
@@ -231,6 +232,7 @@ export default function ChatPage() {
 
           {!loadingHist && messages.length === 0 && (
             <div className="max-w-2xl mx-auto mt-8">
+              <LockedProjectBanner />
               <p className="text-center text-[var(--text-muted)] text-xs mb-3 uppercase tracking-wider">
                 AI 联合创始人 · 命令栏
               </p>
