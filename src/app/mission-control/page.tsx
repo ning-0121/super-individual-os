@@ -10,6 +10,8 @@ import CommandBar from '@/components/copilot/CommandBar'
 import ManagerBriefings from '@/components/manager-reports/ManagerBriefings'
 import LockedProjectBanner from '@/components/project-context/LockedProjectBanner'
 import ActiveProjectHealth from '@/components/project-context/ActiveProjectHealth'
+import TodayCommandCard from '@/components/mission-control/TodayCommandCard'
+import CostPulseCard from '@/components/mission-control/CostPulseCard'
 
 interface MissionData {
   system_matrix: Array<{ id: string; name: string; description: string; status: string; project_count: number; projects: Array<{ id: string; name: string; status: string; current_stage: number }> }>
@@ -107,16 +109,26 @@ export default function MissionControlPage() {
 
         <div className="flex-1 overflow-auto p-6 max-w-6xl">
 
+          {/* V2.7 — Today Command Card (the 5-second answer) */}
+          <TodayCommandCard />
+
           {/* Locked project banner */}
           <LockedProjectBanner />
 
-          {/* Copilot command bar — top of cockpit */}
-          <CommandBar />
+          {/* Copilot command bar + Cost Pulse (side by side on wide screens) */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-4">
+            <div className="lg:col-span-2">
+              <CommandBar />
+            </div>
+            <div className="lg:col-span-1">
+              <CostPulseCard />
+            </div>
+          </div>
 
           {/* Active Project Health — V2.5+ */}
           <ActiveProjectHealth />
 
-          {/* Manager Briefings — V2.3 */}
+          {/* Manager Briefings — V2.3 / V2.7 */}
           <ManagerBriefings />
 
           {/* Auto-loop hero */}
@@ -463,15 +475,39 @@ export default function MissionControlPage() {
               </div>
               {data.system_matrix.length === 0 ? (
                 <div>
-                  <p className="text-xs mb-2" style={{ color: 'var(--text-primary)' }}>从聊一句话开始你的第一个 venture</p>
+                  <p className="text-xs mb-1" style={{ color: 'var(--text-primary)' }}>从聊一句话开始你的第一个 System</p>
                   <p className="text-[10px] mb-3" style={{ color: 'var(--text-muted)' }}>
                     AI 联合创始人会起草 System / Project / 任务 / 预算 / 汇报节奏，你审一遍就开干。
                   </p>
-                  <Link href="/new-venture"
-                    className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg"
-                    style={{ background: 'linear-gradient(90deg, #f472b6, #a78bfa)', color: '#fff' }}>
-                    <Sparkles size={11} /> 启动新 Venture
-                  </Link>
+                  {/* Template gallery */}
+                  <div className="space-y-1.5 mb-3">
+                    {[
+                      { name: 'AI 内容工厂',      seed: '我想做一个 AI 内容工厂：用 AI 人格批量产出历史人物脱口秀', icon: '🎬' },
+                      { name: '外贸增长系统',    seed: '我想做一个外贸增长系统：精准触达海外目标客户 + 转化漏斗',  icon: '🌍' },
+                      { name: '产品开发系统',    seed: '我想做一个 SaaS 产品开发系统：从 MVP 到首批付费用户',     icon: '🛠' },
+                    ].map(tpl => (
+                      <Link key={tpl.name}
+                        href={`/new-venture?seed=${encodeURIComponent(tpl.seed)}`}
+                        className="flex items-center gap-2 text-[11px] p-2 rounded-lg hover:bg-white/5 transition-colors"
+                        style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+                        <span>{tpl.icon}</span>
+                        <span style={{ color: 'var(--text-primary)' }}>{tpl.name}</span>
+                        <span className="ml-auto text-[10px]" style={{ color: 'var(--text-muted)' }}>用 AI 起草 →</span>
+                      </Link>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Link href="/new-venture"
+                      className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg"
+                      style={{ background: 'linear-gradient(90deg, #f472b6, #a78bfa)', color: '#fff' }}>
+                      <Sparkles size={10} /> 自定义 Venture
+                    </Link>
+                    <Link href="/systems"
+                      className="text-[10px] px-3 py-1.5 rounded-lg"
+                      style={{ color: 'var(--text-muted)', border: '1px solid var(--border)' }}>
+                      手动建空 System
+                    </Link>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-2">

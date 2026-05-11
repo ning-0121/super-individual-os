@@ -133,43 +133,69 @@ export default function ManagerBriefings({ filterRole, compact }: Props) {
         </button>
       </div>
 
-      {/* Featured 5-role strip */}
+      {/* Corporate-exec briefing cards (V2.7) */}
       {!compact && (
         <div className="grid grid-cols-5 gap-2 mb-3">
           {FEATURED_ROLES.map(role => {
             const r = latestByRole.get(role)
             const meta = ROLE_META[role]
+            const status = !r
+              ? { label: '无报告',  color: '#94a3b8', bg: 'var(--bg-base)',           border: 'var(--border)' }
+              : r.needs_user_intervention
+                ? { label: '阻塞', color: '#f87171', bg: 'rgba(248,113,113,0.08)',  border: 'rgba(248,113,113,0.3)' }
+                : r.blockers.length > 0
+                  ? { label: '需关注', color: '#fbbf24', bg: 'rgba(251,191,36,0.06)', border: 'rgba(251,191,36,0.28)' }
+                  : { label: '正常', color: '#34d399', bg: 'rgba(52,211,153,0.06)', border: 'rgba(52,211,153,0.28)' }
             return (
-              <div key={role}
-                onClick={() => r && setExpandedId(expandedId === r.id ? null : r.id)}
-                className="rounded-lg p-2.5 cursor-pointer transition-all"
-                style={{
-                  background: r?.needs_user_intervention
-                    ? 'rgba(248,113,113,0.08)'
-                    : 'var(--bg-base)',
-                  border: r?.needs_user_intervention
-                    ? '1px solid rgba(248,113,113,0.3)'
-                    : '1px solid var(--border)',
-                }}>
+              <div key={role} className="rounded-lg p-2.5 flex flex-col"
+                style={{ background: status.bg, border: `1px solid ${status.border}` }}>
+
+                {/* role + status row */}
                 <div className="flex items-center gap-1.5 mb-1.5">
                   <span className="text-sm">{meta.emoji}</span>
                   <span className={`text-[10px] font-semibold ${meta.color}`}>{meta.label}</span>
-                  {r?.needs_user_intervention && (
-                    <AlertTriangle size={9} className="ml-auto text-red-400" />
-                  )}
-                  {r && !r.needs_user_intervention && r.blockers.length === 0 && (
-                    <CheckCircle2 size={9} className="ml-auto text-emerald-400" />
-                  )}
+                  <span className="ml-auto text-[8px] font-mono px-1 rounded uppercase"
+                    style={{ background: `${status.color}20`, color: status.color }}>
+                    {status.label}
+                  </span>
                 </div>
+
                 {r ? (
-                  <p className="text-[10px] line-clamp-2" style={{ color: 'var(--text-secondary)' }}>
-                    {r.summary || '(空)'}
-                  </p>
+                  <>
+                    {/* biggest risk */}
+                    {r.blockers.length > 0 || r.risks.length > 0 ? (
+                      <p className="text-[10px] mb-1 line-clamp-2" style={{ color: 'var(--text-primary)' }}>
+                        <span className="text-amber-400">⚠ </span>
+                        {r.blockers[0] ?? r.risks[0]}
+                      </p>
+                    ) : (
+                      <p className="text-[10px] mb-1" style={{ color: 'var(--text-muted)' }}>无风险</p>
+                    )}
+                    {/* next action */}
+                    {r.next_actions.length > 0 && (
+                      <p className="text-[10px] mb-1.5 line-clamp-2" style={{ color: 'var(--text-secondary)' }}>
+                        <span className="text-cyan-400">→ </span>
+                        {r.next_actions[0]}
+                      </p>
+                    )}
+                    {/* CEO chip + actions */}
+                    <div className="flex items-center gap-1 mt-auto">
+                      {r.needs_user_intervention && (
+                        <span className="text-[8px] px-1 py-0.5 rounded text-red-400 uppercase"
+                          style={{ background: 'rgba(248,113,113,0.12)' }}>需 CEO</span>
+                      )}
+                      <button onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                        className="ml-auto text-[9px] text-[var(--accent-light)] hover:underline">
+                        {expandedId === r.id ? '收起' : '查看 →'}
+                      </button>
+                    </div>
+                  </>
                 ) : (
                   <button
-                    onClick={(e) => { e.stopPropagation(); generateForRole(role) }}
-                    className="text-[10px] text-[var(--accent-light)] inline-flex items-center gap-0.5">
-                    <Plus size={8} /> 生成
+                    onClick={() => generateForRole(role)}
+                    disabled={generating}
+                    className="text-[10px] text-[var(--accent-light)] inline-flex items-center gap-0.5 mt-auto self-start hover:underline disabled:opacity-40">
+                    <Plus size={8} /> 生成报告
                   </button>
                 )}
               </div>
@@ -194,9 +220,16 @@ export default function ManagerBriefings({ filterRole, compact }: Props) {
       )}
 
       {!compact && reports.length === 0 && (
-        <p className="text-[11px] text-center py-3" style={{ color: 'var(--text-muted)' }}>
-          还没有经理报告。点击右上「让所有经理汇报」生成首份每日简报。
-        </p>
+        <div className="text-center py-4">
+          <p className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
+            还没有经理报告。
+          </p>
+          <button onClick={generateAll} disabled={generating}
+            className="inline-flex items-center gap-1.5 text-[10px] px-3 py-1.5 rounded-lg disabled:opacity-40"
+            style={{ background: 'rgba(167,139,250,0.15)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}>
+            <Sparkles size={9} /> {generating ? '生成中...' : '让所有经理生成首份简报'}
+          </button>
+        </div>
       )}
     </div>
   )
