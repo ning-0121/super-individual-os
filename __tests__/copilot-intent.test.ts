@@ -107,6 +107,27 @@ describe('Copilot intent classifier', () => {
     })
   })
 
+  describe('bulk approve / reject (governance V2.4)', () => {
+    it('"批准所有低风险事项" → bulk_approve low', () => {
+      const i = classifyIntent('批准所有低风险事项')
+      expect(i.kind).toBe('bulk_approve')
+      if (i.kind === 'bulk_approve') expect(i.risk_label).toBe('low')
+    })
+    it('"approve all low risk" (EN)', () => {
+      expect(classifyIntent('approve all low risk').kind).toBe('bulk_approve')
+    })
+    it('"拒绝高风险" → bulk_reject high', () => {
+      const i = classifyIntent('拒绝高风险事项')
+      expect(i.kind).toBe('bulk_reject')
+      if (i.kind === 'bulk_reject') expect(i.risk_label).toBe('high')
+    })
+    it('"拒绝所有 critical" → bulk_reject critical', () => {
+      const i = classifyIntent('拒绝所有 critical 项')
+      expect(i.kind).toBe('bulk_reject')
+      if (i.kind === 'bulk_reject') expect(i.risk_label).toBe('critical')
+    })
+  })
+
   describe('blockers overview', () => {
     it('"今天谁有问题"', () => {
       expect(classifyIntent('今天谁有问题').kind).toBe('blockers_overview')

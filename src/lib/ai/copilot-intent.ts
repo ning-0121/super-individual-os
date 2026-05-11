@@ -14,6 +14,9 @@ export type CopilotIntent =
   | { kind: 'start_venture'; seed: string }
   | { kind: 'manager_report'; role?: string; auto_generate?: boolean }
   | { kind: 'blockers_overview' }
+  // V2.4 — governance
+  | { kind: 'bulk_approve'; risk_label: 'low' | 'medium' | 'high' | 'critical' }
+  | { kind: 'bulk_reject';  risk_label: 'low' | 'medium' | 'high' | 'critical' }
   | { kind: 'help' }
   | { kind: 'chat'; query: string }
 
@@ -95,6 +98,24 @@ const RULES: Rule[] = [
     build: () => ({ kind: 'list_growth' }),
   },
 
+  // Bulk approval / rejection — V2.4 governance
+  {
+    any: ['批准所有低风险', '批准所有 low', '批准所有低风险事项', 'approve all low risk'],
+    build: () => ({ kind: 'bulk_approve', risk_label: 'low' }),
+  },
+  {
+    any: ['批准所有中等风险', '批准所有 medium', 'approve all medium risk'],
+    build: () => ({ kind: 'bulk_approve', risk_label: 'medium' }),
+  },
+  {
+    any: ['拒绝所有高风险', '拒绝高风险事项', '拒绝高风险', 'reject all high risk'],
+    build: () => ({ kind: 'bulk_reject', risk_label: 'high' }),
+  },
+  {
+    any: ['拒绝所有 critical', '拒绝所有关键风险', 'reject all critical'],
+    build: () => ({ kind: 'bulk_reject', risk_label: 'critical' }),
+  },
+
   // Blockers overview — must come BEFORE manager_report rules so phrases
   // like "今天谁有问题" / "哪个项目卡住了" route here.
   {
@@ -165,11 +186,11 @@ export function classifyIntent(rawInput: string): CopilotIntent {
 
 // Quick-action menu shown on the empty Copilot panel
 export const QUICK_ACTIONS: Array<{ label: string; sample: string; icon: string }> = [
-  { label: '今天该做什么',   sample: '今天要做什么',     icon: '📋' },
-  { label: '哪里卡住了',     sample: '今天谁有问题',     icon: '🚧' },
-  { label: '看待审批',       sample: '看下待审批',       icon: '🛡' },
-  { label: '让 CTO 汇报',    sample: 'CTO 汇报一下',     icon: '⚙️' },
-  { label: '让所有经理汇报', sample: '所有经理报告',     icon: '🤖' },
-  { label: '看增长实验',     sample: '看下增长实验',     icon: '📈' },
-  { label: '启动新创业',     sample: '我想做一个新项目', icon: '✨' },
+  { label: '今天该做什么',     sample: '今天要做什么',     icon: '📋' },
+  { label: '哪里卡住了',       sample: '今天谁有问题',     icon: '🚧' },
+  { label: '看待审批',         sample: '看下待审批',       icon: '🛡' },
+  { label: '批准所有低风险',   sample: '批准所有低风险事项', icon: '✅' },
+  { label: '让所有经理汇报',   sample: '所有经理报告',     icon: '🤖' },
+  { label: '看增长实验',       sample: '看下增长实验',     icon: '📈' },
+  { label: '启动新创业',       sample: '我想做一个新项目', icon: '✨' },
 ]

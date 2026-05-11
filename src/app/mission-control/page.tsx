@@ -17,6 +17,12 @@ interface MissionData {
   manager_reports_summary?: Array<{ role: string; summary: string; source: string; generated_at: string }>
   growth_loop?: { total: number; running: number; planning: number; completed: number; recent: Array<{ id: string; name: string; status: string; channel: string; current_value: string; target_value: string; system_id: string }> }
   ceo_decisions: { pending_count: number; pending: Array<{ id: string; action_type: string; risk_level: number; classification_reason: string; created_at: string }>; recent: Array<{ id: string; decision_type: string; created_at: string }> }
+  approval_inbox?: {
+    pending_total: number
+    today_count: number
+    by_risk: { low: number; medium: number; high: number; critical: number }
+    recent: Array<{ id: string; action_type: string; risk_label: 'low'|'medium'|'high'|'critical'; title: string; requested_by: string; created_at: string }>
+  }
   auto_loop_status: { auto_approved_7d: number; ai_manager_unanimous_7d: number; ai_manager_rejected_7d: number; blocked_for_human_7d: number; autonomy_rate: number; pending_approvals: number; available_providers: string[]; tool_connection_count?: number; growth_loop_active?: boolean }
   tool_autonomy?: {
     runs_7d: number; failed_24h: number; blocked_or_pending: number
@@ -313,6 +319,59 @@ export default function MissionControlPage() {
               )
             })()}
           </div>
+
+          {/* Approval Inbox — V2.4 */}
+          {data.approval_inbox && (
+            <div className="glass rounded-xl p-5 mb-4">
+              <div className="flex items-center gap-2 mb-3 text-amber-400">
+                <AlertTriangle size={13} />
+                <span className="text-xs font-semibold uppercase tracking-wider">Approval Inbox</span>
+                <Link href="/approvals" className="ml-auto text-[10px] inline-flex items-center gap-1 text-[var(--accent-light)]">
+                  打开审批中心 <ExternalLink size={9} />
+                </Link>
+              </div>
+              <div className="grid grid-cols-6 gap-3 mb-3">
+                <Stat label="待审批" value={data.approval_inbox.pending_total} accent="text-amber-400" />
+                <Stat label="今日" value={data.approval_inbox.today_count} />
+                <Stat label="low"    value={data.approval_inbox.by_risk.low}    accent="text-emerald-400" />
+                <Stat label="medium" value={data.approval_inbox.by_risk.medium} accent="text-amber-400" />
+                <Stat label="high"   value={data.approval_inbox.by_risk.high}   accent="text-orange-400" />
+                <Stat label="critical" value={data.approval_inbox.by_risk.critical}
+                  accent={data.approval_inbox.by_risk.critical > 0 ? 'text-red-400' : 'text-emerald-400'} />
+              </div>
+              {data.approval_inbox.recent.length > 0 ? (
+                <div className="space-y-1.5">
+                  {data.approval_inbox.recent.map(r => (
+                    <Link key={r.id} href="/approvals"
+                      className="flex items-center gap-2 text-[11px] p-2 rounded-lg hover:bg-white/5"
+                      style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+                      <code className="font-mono px-1 rounded text-[9px] uppercase"
+                        style={{
+                          background: r.risk_label === 'critical' ? 'rgba(248,113,113,0.12)'
+                            : r.risk_label === 'high'     ? 'rgba(251,146,60,0.12)'
+                            : r.risk_label === 'medium'   ? 'rgba(251,191,36,0.12)'
+                            : 'rgba(52,211,153,0.12)',
+                          color: r.risk_label === 'critical' ? '#f87171'
+                            : r.risk_label === 'high'     ? '#fb923c'
+                            : r.risk_label === 'medium'   ? '#fbbf24'
+                            : '#34d399',
+                        }}>
+                        {r.risk_label}
+                      </code>
+                      <span style={{ color: 'var(--text-primary)' }}>{r.title || r.action_type}</span>
+                      <span className="ml-auto text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                        {r.requested_by} · {new Date(r.created_at).toLocaleTimeString('zh-CN')}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-center py-2" style={{ color: 'var(--text-muted)' }}>
+                  ✨ 没有待审批 — 所有动作都已自动放行或刚好处理完。
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Tool Autonomy Status */}
           {data.tool_autonomy && (

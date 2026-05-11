@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { apiError } from '@/lib/observability'
 import { classifyIntent, type CopilotIntent } from '@/lib/ai/copilot-intent'
 import { generateManagerReport, listManagerReports } from '@/services/manager-reports'
+import { resolveAllRequiredRoles } from '@/services/managers'
+import { RISK_ORDER, type RiskLabel } from '@/lib/approvals/risk'
 
 // POST /api/ai/copilot
 // Body: { input: string }
@@ -115,6 +117,34 @@ async function loadPayload(
       return {
         blocked_reports: blocked,
         stuck_tasks: stuckTasks ?? [],
+      }
+    }
+    case 'bulk_approve':
+    case 'bulk_reject': {
+      const isApprove = intent.kind === 'bulk_approve'
+      const threshold = RISK_ORDER[intent.risk_label]
+      const { data: rows } = await supabase.from('approval_requests')
+        .select('id, action_type, risk_label, title').eq('user_id', userId).eq('status', 'pending')
+      const filtered = (rows ?? []).filter(r => {
+        const lvl = RISK_ORDER[(r.risk_label as RiskLabel) ?? 'low']
+        return isApprove ? lvl <= threshold : lvl >= threshold
+      })
+      const ids = filtered.map(r => r.id as string)
+      const decision = isApprove ? 'approved' as const : 'rejected' as const
+      const results: Array<{ id: string; ok: boolean; action_type: string }> = []
+      for (const r of filtered) {
+        const out = await resolveAllRequiredRoles(supabase, {
+          userId, requestId: r.id as string, decision,
+          reason: `copilot_bulk_${intent.kind}`,
+        })
+        results.push({ id: r.id as string, ok: !!out.ok, action_type: r.action_type as string })
+      }
+      return {
+        mode: intent.kind,
+        risk_label: intent.risk_label,
+        processed: ids.length,
+        succeeded: results.filter(r => r.ok).length,
+        items: results,
       }
     }
     case 'help':

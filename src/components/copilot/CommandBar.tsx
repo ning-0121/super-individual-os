@@ -138,6 +138,7 @@ function ResponseCard({ resp }: { resp: CopilotResponse }) {
           <li>· "看下增长实验" → 列出实验</li>
           <li>· "CTO 汇报一下" / "让所有经理汇报" → Manager Report（无则即时生成）</li>
           <li>· "今天谁有问题" / "哪个项目卡住了" → 阻塞总览</li>
+          <li>· "批准所有低风险事项" / "拒绝所有高风险" → 批量治理</li>
           <li>· "想做一个 X" → 跳到 ✨ 新 Venture (带预填)</li>
           <li>· 其他自然语言 → AI 联合创始人对话</li>
         </ul>
@@ -276,6 +277,46 @@ function ResponseCard({ resp }: { resp: CopilotResponse }) {
             </div>
           ))}
         </SectionList>
+      </>
+    )
+  }
+
+  if (intent.kind === 'bulk_approve' || intent.kind === 'bulk_reject') {
+    const processed = (payload.processed as number) ?? 0
+    const succeeded = (payload.succeeded as number) ?? 0
+    const items = (payload.items as Array<{ id: string; ok: boolean; action_type: string }>) ?? []
+    const isApprove = intent.kind === 'bulk_approve'
+    return (
+      <>
+        <div className={`flex items-center gap-2 mb-2 ${isApprove ? 'text-emerald-400' : 'text-red-400'}`}>
+          <ShieldAlert size={12} />
+          <p className="text-xs font-semibold uppercase tracking-wider">
+            {isApprove ? '已批准' : '已拒绝'} ({succeeded} / {processed})
+          </p>
+          <span className="ml-auto text-[10px]" style={{ color: 'var(--text-muted)' }}>
+            risk ≤ {intent.risk_label}
+          </span>
+        </div>
+        {processed === 0 ? (
+          <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+            没有符合条件的待审批项
+          </p>
+        ) : (
+          <div className="space-y-1">
+            {items.slice(0, 6).map(it => (
+              <div key={it.id} className="text-[11px] p-2 rounded-lg"
+                style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+                <span className={it.ok ? 'text-emerald-400' : 'text-red-400'}>
+                  {it.ok ? '✓' : '✗'}
+                </span>
+                <code className="ml-2 font-mono text-[10px]" style={{ color: 'var(--text-secondary)' }}>{it.action_type}</code>
+              </div>
+            ))}
+          </div>
+        )}
+        <Link href="/approvals" className="text-[10px] inline-flex items-center gap-1 mt-2 text-[var(--accent-light)]">
+          打开审批中心 <ExternalLink size={9} />
+        </Link>
       </>
     )
   }

@@ -160,6 +160,39 @@ export async function GET() {
     recent: ceoRecent,
   }
 
+  // ─── 5b. approval_inbox (V2.4) ────────────────────────────────
+  // Pull risk_label aggregation from the existing pendingApprovals query
+  const { data: inboxRows } = await supabase
+    .from('approval_requests')
+    .select('id, risk_label, risk_level, action_type, title, requested_by, created_at')
+    .eq('user_id', user.id).eq('status', 'pending')
+    .order('created_at', { ascending: false })
+  const labelToCount: Record<'low'|'medium'|'high'|'critical', number> = {
+    low: 0, medium: 0, high: 0, critical: 0,
+  }
+  for (const r of (inboxRows ?? [])) {
+    const lbl = (r.risk_label as 'low'|'medium'|'high'|'critical' | null) ?? (
+      (r.risk_level as number) <= 1 ? 'low' :
+      (r.risk_level as number) === 2 ? 'medium' :
+      (r.risk_level as number) === 3 ? 'high' : 'critical'
+    )
+    labelToCount[lbl]++
+  }
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+  const todayIso = todayStart.toISOString()
+  const today_count = (inboxRows ?? []).filter(r => (r.created_at as string) >= todayIso).length
+
+  const approval_inbox = {
+    pending_total: (inboxRows ?? []).length,
+    today_count,
+    by_risk: labelToCount,
+    recent: (inboxRows ?? []).slice(0, 5).map(r => ({
+      id: r.id, action_type: r.action_type, risk_label: r.risk_label,
+      title: r.title, requested_by: r.requested_by, created_at: r.created_at,
+    })),
+  }
+
   // ─── 6. auto_loop_status ──────────────────────────────────────
   const events = (auditLogs7d ?? [])
   const autoGranted = events.filter(e => e.event_type === 'auto_approval.granted').length
@@ -266,6 +299,7 @@ export async function GET() {
     manager_reports,
     manager_reports_summary,
     ceo_decisions,
+    approval_inbox,
     auto_loop_status,
     growth_loop,
     tool_autonomy,
