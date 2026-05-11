@@ -34,6 +34,9 @@ export default function ChatPage() {
   const [loading, setLoading]     = useState(false)
   const [loadingHist, setLoadingHist] = useState(false)
   const [signal, setSignal]           = useState<DecisionSignal | null>(null)
+  // V2.6 — Gateway run info shown in right panel
+  interface GatewayInfo { provider: string; model: string; route_reason: string; fallback_used: boolean; primary_provider?: string; primary_model?: string; latency_ms?: number }
+  const [gwInfo, setGwInfo]           = useState<GatewayInfo | null>(null)
   const [showCtx, setShowCtx]         = useState(true)
   // Map from message array index → decisionLogId for feedback
   const [decisionLogIds, setDecisionLogIds] = useState<Record<number, string>>({})
@@ -88,12 +91,25 @@ export default function ChatPage() {
 
     if (!res.ok) { setLoading(false); return }
 
-    // Read decision signal + log id from headers
+    // Read decision signal + log id + gateway info from headers
     let decisionLogId: string | null = null
+    const tStart = Date.now()
     try {
       const sig = res.headers.get('X-Decision-Signal')
       if (sig) setSignal(JSON.parse(sig))
       decisionLogId = res.headers.get('X-Decision-Log-Id')
+
+      const provider = res.headers.get('X-Provider')
+      const model    = res.headers.get('X-Model')
+      if (provider && model) {
+        setGwInfo({
+          provider, model,
+          route_reason: res.headers.get('X-Route-Reason') ?? '',
+          fallback_used: res.headers.get('X-Fallback-Used') === 'true',
+          primary_provider: res.headers.get('X-Primary-Provider') ?? undefined,
+          primary_model: res.headers.get('X-Primary-Model') ?? undefined,
+        })
+      }
     } catch {}
 
     const reader = res.body!.getReader()
@@ -125,6 +141,8 @@ export default function ChatPage() {
     if (decisionLogId && aiMsgIndex >= 0) {
       setDecisionLogIds(prev => ({ ...prev, [aiMsgIndex]: decisionLogId! }))
     }
+    // Update gateway latency once streaming is done
+    setGwInfo(prev => prev ? { ...prev, latency_ms: Date.now() - tStart } : prev)
     setLoading(false)
   }
 
@@ -348,6 +366,45 @@ export default function ChatPage() {
           </div>
 
           <div className="p-4 space-y-4 flex-1">
+            {/* V2.6 — AI Gateway run info */}
+            {gwInfo && (
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
+                  ⚡ AI Gateway
+                </p>
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between">
+                    <span style={{ color: 'var(--text-muted)' }}>Provider</span>
+                    <code className="font-mono text-[10px] px-1 rounded"
+                      style={{ background: 'rgba(99,102,241,0.12)', color: 'var(--accent-light)' }}>
+                      {gwInfo.provider}
+                    </code>
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span style={{ color: 'var(--text-muted)' }}>Model</span>
+                    <span className="font-mono" style={{ color: 'var(--text-secondary)' }}>{gwInfo.model}</span>
+                  </div>
+                  {gwInfo.latency_ms !== undefined && (
+                    <div className="flex justify-between text-[10px]">
+                      <span style={{ color: 'var(--text-muted)' }}>Latency</span>
+                      <span className="font-mono text-cyan-400">{gwInfo.latency_ms}ms</span>
+                    </div>
+                  )}
+                  {gwInfo.fallback_used && (
+                    <div className="text-[10px] mt-1.5 px-2 py-1 rounded"
+                      style={{ background: 'rgba(251,191,36,0.08)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.25)' }}>
+                      ⚠ fallback: {gwInfo.primary_provider}/{gwInfo.primary_model} → {gwInfo.provider}
+                    </div>
+                  )}
+                  {gwInfo.route_reason && (
+                    <p className="text-[9px] mt-1" style={{ color: 'var(--text-muted)' }}>
+                      路由：{gwInfo.route_reason}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Decision Signal */}
             {signal ? (
               <>

@@ -7,6 +7,7 @@ import { resetOnboarding } from '@/services/onboarding'
 import { UserProfile, Memory, MemoryType } from '@/types'
 import { useRouter } from 'next/navigation'
 import { Brain, Target, AlertTriangle, TrendingUp, XCircle, RotateCcw, Edit2, Check, X, Plus, Trash2 } from 'lucide-react'
+import ModelSettings from '@/components/ai/ModelSettings'
 
 const MEMORY_META: Record<string, { icon: string; color: string }> = {
   goal:        { icon: '◎', color: 'text-[var(--accent-light)]' },
@@ -338,6 +339,11 @@ export default function SettingsPage() {
               </div>
             </div>
           )}
+
+          {/* V2.6 — AI Gateway / Model Settings */}
+          <div className="px-6 py-6 max-w-4xl">
+            <ModelSettings />
+          </div>
         </div>
       </main>
     </div>

@@ -1,12 +1,10 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
 import { buildSystemPrompt, AIMode } from '@/lib/claude'
 import { buildContext } from '@/lib/ai/context-engine'
 import { runDecisionEngine } from '@/lib/ai/decision-engine'
 import { logDecision, extractActionItems, getLearningInsights } from '@/lib/ai/learning-loop'
 import { buildStageContextForLLM } from '@/lib/stages/engine'
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+import { streamGateway } from '@/lib/ai/ai-gateway'
 
 export async function POST(req: Request) {
   // V1.8: projectId is optional — when present, persists project_id on
@@ -76,21 +74,20 @@ export async function POST(req: Request) {
     await supabase.from('messages').insert({ conversation_id: conversationId, role: 'user', content: userInput })
   }
 
-  // 5. Call Claude with full context
-  const messages = [
-    ...messageHistory.map((m: { role: string; content: string }) => ({
-      role: m.role as 'user' | 'assistant',
-      content: m.content,
-    })),
-    { role: 'user' as const, content: userInput },
-  ]
+  // 5. Call AI Gateway — wraps anthropic / openai / mock with fallback
+  const priorMessages = messageHistory.map((m: { role: string; content: string }) => ({
+    role: m.role as 'user' | 'assistant',
+    content: m.content,
+  }))
 
-  const stream = await anthropic.messages.stream({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 4096,
+  const gw = await streamGateway(supabase, user.id, {
+    stage: 'engineering',     // Linda's strategy default — code reasoning capable
+    prompt: userInput,
     system: systemPrompt,
-    messages,
+    messages: priorMessages,
+    max_tokens: 4096,
   })
+  const stream = gw.stream
 
   // 6. Pre-create decision log so we can return its ID in headers
   const decisionLogId = await logDecision(supabase, {
@@ -117,9 +114,9 @@ export async function POST(req: Request) {
   const readable = new ReadableStream({
     async start(controller) {
       for await (const chunk of stream) {
-        if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
-          fullContent += chunk.delta.text
-          controller.enqueue(encoder.encode(chunk.delta.text))
+        if (chunk.type === 'text_delta') {
+          fullContent += chunk.text
+          controller.enqueue(encoder.encode(chunk.text))
         }
       }
 
@@ -166,6 +163,9 @@ export async function POST(req: Request) {
         }
       }
 
+      // Finalize gateway (persists model_runs row with cost + tokens)
+      await gw.finalize().catch(() => null)
+
       controller.close()
     },
   })
@@ -176,7 +176,15 @@ export async function POST(req: Request) {
       'X-Decision-Signal': JSON.stringify(signal),
       'X-Effective-Mode': effectiveMode,
       'X-Decision-Log-Id': decisionLogId ?? '',
-      'Access-Control-Expose-Headers': 'X-Decision-Signal, X-Effective-Mode, X-Decision-Log-Id',
+      // V2.6 — Gateway info for Chat panel
+      'X-Provider': gw.provider,
+      'X-Model': gw.model,
+      'X-Route-Reason': gw.reason,
+      'X-Fallback-Used': gw.fallback_used ? 'true' : 'false',
+      'X-Primary-Provider': gw.primary_provider ?? '',
+      'X-Primary-Model': gw.primary_model ?? '',
+      'Access-Control-Expose-Headers':
+        'X-Decision-Signal, X-Effective-Mode, X-Decision-Log-Id, X-Provider, X-Model, X-Route-Reason, X-Fallback-Used, X-Primary-Provider, X-Primary-Model',
     },
   })
 }
