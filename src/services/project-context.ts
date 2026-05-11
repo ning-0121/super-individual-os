@@ -4,6 +4,10 @@ import {
   buildProjectPromptBlock, summarizeForHandoff, mergeActivityIntoContext,
   type ActivityEvent, type HandoffSummary,
 } from '@/lib/project-context'
+import {
+  computeHealthScore, suggestStopContinuePivot, buildHealthDirective,
+  type HealthScore, type Advice,
+} from '@/lib/project-context/health'
 import { logger } from '@/lib/observability'
 
 // ─────────────────────────────────────────────────
@@ -130,7 +134,7 @@ export async function generateHandoff(
 }
 
 // Build the LLM prompt block — used by chat / dispatch / manager loops
-// when a project_id is present.
+// when a project_id is present. Appends Health Directive when warning/critical.
 export async function buildPromptBlockForProject(
   supabase: SupabaseClient, userId: string, projectId: string,
 ): Promise<string | null> {
@@ -138,9 +142,97 @@ export async function buildPromptBlockForProject(
   if (!ctx) return null
   const { data: project } = await supabase.from('projects')
     .select('name').eq('id', projectId).eq('user_id', userId).maybeSingle()
-  return buildProjectPromptBlock(ctx, {
+  let block = buildProjectPromptBlock(ctx, {
     project_name: (project?.name as string) ?? undefined,
   })
+  // Append health-aware directive if needed
+  try {
+    const { health } = await computeProjectHealth(supabase, userId, projectId)
+    const directive = buildHealthDirective(health.status)
+    if (directive) block += '\n' + directive
+  } catch { /* best effort */ }
+  return block
+}
+
+// ─────────────────────────────────────────
+// V2.5+ — Project Health composition
+// ─────────────────────────────────────────
+export interface ProjectHealth {
+  health: HealthScore
+  advice: Advice
+  metrics: {
+    total_tasks: number
+    completed_tasks: number
+    blocked_tasks: number
+    activity_count_7d: number
+    has_next_actions: boolean
+    has_locked_context: boolean
+    last_activity_at: string | null
+  }
+}
+
+export async function computeProjectHealth(
+  supabase: SupabaseClient, userId: string, projectId: string,
+): Promise<ProjectHealth> {
+  const HOUR = 60 * 60 * 1000
+  const since48h = new Date(Date.now() - 48 * HOUR).toISOString()
+  const since7d  = new Date(Date.now() -  7 * 24 * HOUR).toISOString()
+
+  const [
+    { data: tasks },
+    { data: recentActivity },
+    { data: lastActivityRow },
+    ctx,
+  ] = await Promise.all([
+    supabase.from('tasks').select('id, workflow_status, updated_at')
+      .eq('user_id', userId).eq('project_id', projectId),
+    supabase.from('project_activity_logs').select('id')
+      .eq('user_id', userId).eq('project_id', projectId)
+      .gte('created_at', since7d),
+    supabase.from('project_activity_logs').select('created_at')
+      .eq('user_id', userId).eq('project_id', projectId)
+      .order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    getOrCreateContext(supabase, userId, projectId),
+  ])
+
+  const total_tasks = (tasks ?? []).length
+  const completed_tasks = (tasks ?? []).filter(t =>
+    ['completed', 'approved'].includes(String(t.workflow_status))).length
+  const blocked_tasks = (tasks ?? []).filter(t => {
+    if (['completed', 'approved', 'archived'].includes(String(t.workflow_status))) return false
+    return ((t.updated_at as string | null) ?? '') < since48h
+  }).length
+  const activity_count_7d = (recentActivity ?? []).length
+  const has_next_actions = !!(ctx && (ctx.next_actions ?? []).length > 0)
+  const has_locked_context = !!ctx?.locked
+
+  const health = computeHealthScore({
+    total_tasks, completed_tasks, blocked_tasks,
+    activity_count_7d, has_next_actions, has_locked_context,
+  })
+
+  const last_activity_at = (lastActivityRow?.created_at as string | null) ?? null
+  const hours_since_last_activity = last_activity_at
+    ? Math.round((Date.now() - new Date(last_activity_at).getTime()) / HOUR)
+    : 9999
+
+  const advice = suggestStopContinuePivot({
+    health_status: health.status,
+    blocked_tasks,
+    activity_count_7d,
+    has_next_actions,
+    completion_ratio: total_tasks > 0 ? completed_tasks / total_tasks : 0,
+    hours_since_last_activity,
+  })
+
+  return {
+    health, advice,
+    metrics: {
+      total_tasks, completed_tasks, blocked_tasks,
+      activity_count_7d, has_next_actions, has_locked_context,
+      last_activity_at,
+    },
+  }
 }
 
 // Convenience re-exports

@@ -138,6 +138,17 @@ export async function POST(req: Request) {
           .update({ ai_output: fullContent })
           .eq('id', decisionLogId)
 
+        // V2.5+ — Activity hook: feed decision into project memory kernel
+        if (projectId) {
+          const { appendActivity } = await import('@/services/project-context')
+          await appendActivity(supabase, user.id, projectId, {
+            activity_type: 'decision',
+            title: (userInput as string).slice(0, 120),
+            summary: fullContent.slice(0, 500),
+            metadata: { decision_log_id: decisionLogId, mode },
+          }).catch(() => {})
+        }
+
         // Extract and insert execution items now that we have full content
         const actions = extractActionItems(fullContent)
         if (actions.length > 0) {

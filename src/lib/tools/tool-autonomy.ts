@@ -221,6 +221,21 @@ export async function executeAutonomousToolCall(
       metadata: { capability_action: call.capability_action, risk_level: classification.risk_level },
     } as never)
 
+    // V2.5+ — Activity hook: deployment / migration successes land on the project timeline
+    if (call.project_id) {
+      const isDeploy    = /vercel\.deploy/i.test(call.capability_action)
+      const isMigration = /supabase\.migration\.(apply_staging|apply_production)/i.test(call.capability_action)
+      if (isDeploy || isMigration) {
+        const { appendActivity } = await import('@/services/project-context')
+        await appendActivity(supabase, userId, call.project_id, {
+          activity_type: 'deployment',
+          title: `✓ ${call.capability_action}`,
+          summary: '',
+          metadata: { tool_run_id: runId, result: raw.result },
+        }).catch(() => {})
+      }
+    }
+
     return {
       ok: true, status: 'success', tool_run_id: runId,
       capability: classification.capability ?? undefined,

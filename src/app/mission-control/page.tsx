@@ -9,6 +9,7 @@ import {
 import CommandBar from '@/components/copilot/CommandBar'
 import ManagerBriefings from '@/components/manager-reports/ManagerBriefings'
 import LockedProjectBanner from '@/components/project-context/LockedProjectBanner'
+import ActiveProjectHealth from '@/components/project-context/ActiveProjectHealth'
 
 interface MissionData {
   system_matrix: Array<{ id: string; name: string; description: string; status: string; project_count: number; projects: Array<{ id: string; name: string; status: string; current_stage: number }> }>
@@ -111,6 +112,9 @@ export default function MissionControlPage() {
 
           {/* Copilot command bar — top of cockpit */}
           <CommandBar />
+
+          {/* Active Project Health — V2.5+ */}
+          <ActiveProjectHealth />
 
           {/* Manager Briefings — V2.3 */}
           <ManagerBriefings />

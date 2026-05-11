@@ -2,6 +2,7 @@
 import { useEffect, useState, use } from 'react'
 import Link from 'next/link'
 import { Loader2, MessageSquare, CheckSquare, Activity, Package, Target, AlertTriangle, CheckCircle2, Milestone, ArrowRight } from 'lucide-react'
+import ProjectOperatingDashboard from '@/components/project-context/ProjectOperatingDashboard'
 
 interface ReportData {
   project: { id: string; name: string; goal_statement: string; description: string; status: string; plan_generated: boolean; current_stage?: number }
@@ -47,6 +48,9 @@ export default function ProjectOverviewPage({ params }: { params: Promise<{ id: 
 
   return (
     <div className="p-6 max-w-5xl">
+
+      {/* V2.5+ Project Operating Dashboard */}
+      <ProjectOperatingDashboard projectId={id} />
 
       {/* Stage Hero (V1.9) */}
       {stage && currentStageDef && (
