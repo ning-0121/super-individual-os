@@ -12,6 +12,7 @@ import LockedProjectBanner from '@/components/project-context/LockedProjectBanne
 import ActiveProjectHealth from '@/components/project-context/ActiveProjectHealth'
 import TodayCommandCard from '@/components/mission-control/TodayCommandCard'
 import CostPulseCard from '@/components/mission-control/CostPulseCard'
+import ActiveWorkflowRuntime from '@/components/mission-control/ActiveWorkflowRuntime'
 
 interface MissionData {
   system_matrix: Array<{ id: string; name: string; description: string; status: string; project_count: number; projects: Array<{ id: string; name: string; status: string; current_stage: number }> }>
@@ -127,6 +128,9 @@ export default function MissionControlPage() {
 
           {/* Active Project Health — V2.5+ */}
           <ActiveProjectHealth />
+
+          {/* Active Workflow Runtime — V2.8 */}
+          <ActiveWorkflowRuntime />
 
           {/* Manager Briefings — V2.3 / V2.7 */}
           <ManagerBriefings />
