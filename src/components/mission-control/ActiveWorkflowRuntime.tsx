@@ -107,9 +107,17 @@ export default function ActiveWorkflowRuntime() {
                   style={{ background: `${meta.color}15`, color: meta.color }}>
                   {meta.label}
                 </span>
-                <p className="text-xs font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
-                  {r.workflow_name}
-                </p>
+                {r.project_id ? (
+                  <Link href={`/projects/${r.project_id}/workflows/${r.workflow_id}`}
+                    className="text-xs font-semibold truncate hover:underline"
+                    style={{ color: 'var(--text-primary)' }}>
+                    {r.workflow_name}
+                  </Link>
+                ) : (
+                  <p className="text-xs font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                    {r.workflow_name}
+                  </p>
+                )}
                 {r.project_id && (
                   <Link href={`/projects/${r.project_id}`} className="text-[10px] text-[var(--accent-light)] hover:underline">
                     · {r.project_name ?? r.project_id.slice(0, 6)}

@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import Sidebar from '@/components/layout/Sidebar'
 import ProjectContextPanel from '@/components/project-context/ProjectContextPanel'
-import { LayoutDashboard, MessageSquare, CheckSquare, Activity, Package, Wrench, Brain, FileText, Sparkles, ArrowLeft, ChevronRight, Milestone } from 'lucide-react'
+import { LayoutDashboard, MessageSquare, CheckSquare, Activity, Package, Wrench, Brain, FileText, Sparkles, ArrowLeft, ChevronRight, Milestone, GitBranch } from 'lucide-react'
 
 interface Project {
   id: string
@@ -23,6 +23,7 @@ const TABS = [
   { key: 'stage',     href: '/stage',     label: 'Stage',     icon: Milestone },
   { key: 'chat',      href: '/chat',      label: 'Chat',      icon: MessageSquare },
   { key: 'tasks',     href: '/tasks',     label: 'Tasks',     icon: CheckSquare },
+  { key: 'workflows', href: '/workflows', label: 'Workflows', icon: GitBranch },
   { key: 'runs',      href: '/runs',      label: 'Runs',      icon: Activity },
   { key: 'artifacts', href: '/artifacts', label: 'Artifacts', icon: Package },
   { key: 'tools',     href: '/tools',     label: 'Tools',     icon: Wrench },
