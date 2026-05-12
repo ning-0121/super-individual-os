@@ -53,6 +53,7 @@ const GROUPS: Array<{ group: string; items: Item[] }> = [
     items: [
       { href: '/tools',             label: 'Tools',          icon: Wrench },
       { href: '/tools/autonomy',    label: 'Tool Autonomy',  icon: ShieldCheck },
+      { href: '/cost',              label: 'Cost',           icon: TrendingUp },
       { href: '/settings',          label: 'Second Brain',   icon: Brain },
       { href: '/system-readiness',  label: 'Beta Readiness', icon: ShieldCheck },
     ],

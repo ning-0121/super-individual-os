@@ -5,6 +5,12 @@ import { generateManagerReport, listManagerReports } from '@/services/manager-re
 import { resolveAllRequiredRoles } from '@/services/managers'
 import { RISK_ORDER, type RiskLabel } from '@/lib/approvals/risk'
 import { listActiveWorkflowRuns } from '@/services/workflow-runtime'
+import {
+  summarize, breakdownByModel, breakdownByStage, mostExpensiveModel,
+  inWindow, startOfToday, startOfThisWeekISO, startOfThisMonth,
+  type ModelRunRow,
+} from '@/lib/cost/aggregate'
+import { evaluateGuardrails, DEFAULT_GUARDRAILS } from '@/lib/cost/guardrails'
 
 // POST /api/ai/copilot
 // Body: { input: string }
@@ -118,6 +124,34 @@ async function loadPayload(
       return {
         blocked_reports: blocked,
         stuck_tasks: stuckTasks ?? [],
+      }
+    }
+    case 'cost_summary': {
+      const sinceMonth = startOfThisMonth()
+      const { data } = await supabase.from('model_runs')
+        .select('provider, model, agent_type, task_kind, input_tokens, output_tokens, duration_ms, status, cost_usd_estimated, fallback_used, created_at')
+        .eq('user_id', userId)
+        .gte('created_at', sinceMonth)
+        .limit(5000)
+      const rows = (data ?? []) as unknown as ModelRunRow[]
+
+      const today = summarize(inWindow(rows, startOfToday()))
+      const week  = summarize(inWindow(rows, startOfThisWeekISO()))
+      const month = summarize(rows)
+      const top = mostExpensiveModel(rows)
+      const byStage = breakdownByStage(rows).slice(0, 5)
+      const byModel = breakdownByModel(rows).slice(0, 3)
+      const guardrails = evaluateGuardrails(today.cost_usd, month.cost_usd, DEFAULT_GUARDRAILS)
+
+      return {
+        window: intent.window ?? null,
+        aspect: intent.aspect ?? null,
+        summary: { today, week, month },
+        top_model: top,
+        by_stage: byStage,
+        by_model: byModel,
+        guardrails,
+        thresholds: DEFAULT_GUARDRAILS,
       }
     }
     case 'workflow_status': {

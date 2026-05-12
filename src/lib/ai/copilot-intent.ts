@@ -19,6 +19,10 @@ export type CopilotIntent =
   | { kind: 'bulk_reject';  risk_label: 'low' | 'medium' | 'high' | 'critical' }
   // V2.9 — workflow status check
   | { kind: 'workflow_status' }
+  // V3.0 — cost dashboard
+  | { kind: 'cost_summary';
+      window?: 'today' | 'week' | 'month'
+      aspect?: 'most_expensive' | 'fallback' | 'by_stage' | 'general' }
   | { kind: 'help' }
   | { kind: 'chat'; query: string }
 
@@ -116,6 +120,37 @@ const RULES: Rule[] = [
   {
     any: ['拒绝所有 critical', '拒绝所有关键风险', 'reject all critical'],
     build: () => ({ kind: 'bulk_reject', risk_label: 'critical' }),
+  },
+
+  // V3.0 — Cost queries (run BEFORE manager_report so "CTO 成本" or
+  // "今天 AI 花了多少钱" doesn't fall into a CTO report)
+  {
+    any: ['哪个模型最贵', '哪个模型最烧钱', 'most expensive model', '最贵的模型'],
+    build: () => ({ kind: 'cost_summary', aspect: 'most_expensive' }),
+  },
+  {
+    any: ['fallback 多吗', 'fallback 次数', 'fallback rate', '回退次数'],
+    build: () => ({ kind: 'cost_summary', aspect: 'fallback' }),
+  },
+  {
+    any: ['哪个 stage 最烧钱', '哪个 stage 最贵', '按 stage', 'by stage cost', 'stage 成本'],
+    build: () => ({ kind: 'cost_summary', aspect: 'by_stage' }),
+  },
+  {
+    any: ['今天 ai 花了多少钱', '今日 ai 成本', '今日成本', '今天花了多少钱', '今日 cost', 'today ai cost'],
+    build: () => ({ kind: 'cost_summary', window: 'today' }),
+  },
+  {
+    any: ['本周 ai 成本', '本周成本', '本周 cost', 'this week ai cost'],
+    build: () => ({ kind: 'cost_summary', window: 'week' }),
+  },
+  {
+    any: ['本月 ai 成本', '本月模型成本', '本月成本', '这个月成本', '本月 cost', 'this month ai cost', 'monthly ai cost'],
+    build: () => ({ kind: 'cost_summary', window: 'month' }),
+  },
+  {
+    any: ['ai 成本', 'ai cost', '模型成本', 'cost dashboard', '看成本', '看一下成本'],
+    build: () => ({ kind: 'cost_summary', aspect: 'general' }),
   },
 
   // V2.9 — workflow-flavored shortcuts (run BEFORE manager_report so that
@@ -218,6 +253,7 @@ export const QUICK_ACTIONS: Array<{ label: string; sample: string; icon: string 
   { label: '哪里卡住了',       sample: '今天谁有问题',     icon: '🚧' },
   { label: '看待审批',         sample: '看下待审批',       icon: '🛡' },
   { label: 'workflow 卡点',    sample: '哪个 workflow 卡住了', icon: '🔗' },
+  { label: 'AI 成本',          sample: '今日 AI 成本',     icon: '💸' },
   { label: '批准所有低风险',   sample: '批准所有低风险事项', icon: '✅' },
   { label: '让所有经理汇报',   sample: '所有经理报告',     icon: '🤖' },
   { label: '看增长实验',       sample: '看下增长实验',     icon: '📈' },

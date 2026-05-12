@@ -281,6 +281,94 @@ function ResponseCard({ resp }: { resp: CopilotResponse }) {
     )
   }
 
+  if (intent.kind === 'cost_summary') {
+    interface Sum { calls: number; cost_usd: number; fallback_count: number; failure_count: number }
+    interface Top { provider: string; model: string; estimated_cost: number; calls: number }
+    interface ByStage { stage: string; cost_usd: number; calls: number; failure_rate: number }
+    const summary = payload.summary as { today: Sum; week: Sum; month: Sum }
+    const top = payload.top_model as Top | null
+    const byStage = (payload.by_stage as ByStage[]) ?? []
+    const guard = payload.guardrails as { overall_level: 'ok'|'warning'|'critical'; banner_message?: string }
+    const fmt = (u: number) => u === 0 ? '$0' : (u < 1 ? `$${u.toFixed(4)}` : `$${u.toFixed(2)}`)
+    const aspect = intent.aspect ?? 'general'
+    const window = intent.window ?? 'month'
+    const focusedSum = window === 'today' ? summary.today : window === 'week' ? summary.week : summary.month
+
+    return (
+      <>
+        <div className="flex items-center gap-2 mb-2 text-violet-400">
+          <Sparkles size={12} />
+          <p className="text-xs font-semibold uppercase tracking-wider">AI 成本</p>
+          <Link href="/cost" className="ml-auto text-[10px] inline-flex items-center gap-1 text-[var(--accent-light)]">
+            打开 Cost <ExternalLink size={9} />
+          </Link>
+        </div>
+
+        {guard.banner_message && (
+          <div className="rounded-lg p-2 mb-2 text-[10px]"
+            style={{
+              background: guard.overall_level === 'critical' ? 'rgba(248,113,113,0.08)' : 'rgba(251,191,36,0.08)',
+              color: guard.overall_level === 'critical' ? '#f87171' : '#fbbf24',
+              border: `1px solid ${guard.overall_level === 'critical' ? 'rgba(248,113,113,0.3)' : 'rgba(251,191,36,0.3)'}`,
+            }}>
+            ⚠ {guard.banner_message}
+          </div>
+        )}
+
+        <div className="grid grid-cols-3 gap-2 mb-2 text-[11px]">
+          <Cell label="今日" value={fmt(summary.today.cost_usd)} sub={`${summary.today.calls} 次`} />
+          <Cell label="本周" value={fmt(summary.week.cost_usd)}  sub={`${summary.week.calls} 次`} />
+          <Cell label="本月" value={fmt(summary.month.cost_usd)} sub={`${summary.month.calls} 次`}
+            accent={guard.overall_level === 'critical' ? 'text-red-400' : guard.overall_level === 'warning' ? 'text-amber-400' : 'text-violet-400'} />
+        </div>
+
+        {(aspect === 'most_expensive' || aspect === 'general') && top && (
+          <div className="text-[11px] p-2 rounded-lg mb-2"
+            style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+            <p className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-muted)' }}>
+              本月最贵
+            </p>
+            <p style={{ color: 'var(--text-primary)' }}>
+              {top.provider} · <span className="font-mono">{top.model}</span>
+              <span className="ml-2 text-violet-400 font-mono">{fmt(top.estimated_cost)}</span>
+              <span className="ml-2 text-[10px]" style={{ color: 'var(--text-muted)' }}>({top.calls} 次)</span>
+            </p>
+          </div>
+        )}
+
+        {(aspect === 'fallback' || aspect === 'general') && focusedSum && (
+          <p className="text-[11px] mb-2" style={{ color: 'var(--text-secondary)' }}>
+            {window === 'today' ? '今日' : window === 'week' ? '本周' : '本月'}
+            fallback <span className="text-amber-400 font-mono">{focusedSum.fallback_count}</span> 次 ·
+            错误 <span className="text-red-400 font-mono">{focusedSum.failure_count}</span> 次
+          </p>
+        )}
+
+        {(aspect === 'by_stage' || aspect === 'general') && byStage.length > 0 && (
+          <div>
+            <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+              按 stage（本月 top 5）
+            </p>
+            <div className="space-y-1">
+              {byStage.map(s => (
+                <div key={s.stage} className="flex items-center gap-2 text-[11px] p-1.5 rounded"
+                  style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+                  <code className="font-mono text-[10px] px-1 rounded text-pink-400"
+                    style={{ background: 'rgba(244,114,182,0.1)' }}>{s.stage}</code>
+                  <span style={{ color: 'var(--text-muted)' }}>{s.calls} 次</span>
+                  {s.failure_rate > 0 && (
+                    <span className="text-red-400">{Math.round(s.failure_rate * 100)}% fail</span>
+                  )}
+                  <span className="ml-auto font-mono text-violet-400">{fmt(s.cost_usd)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </>
+    )
+  }
+
   if (intent.kind === 'workflow_status') {
     interface WfRun {
       run_id: string; workflow_id: string; workflow_name: string
@@ -449,5 +537,19 @@ function SectionList({ icon: Icon, title, count, accent, empty, emptyAction, chi
         <div className="space-y-1">{children}</div>
       )}
     </>
+  )
+}
+
+function Cell({ label, value, sub, accent }: {
+  label: string; value: string; sub?: string; accent?: string
+}) {
+  return (
+    <div className="rounded-lg p-2"
+      style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+      <p className="text-[9px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>{label}</p>
+      <p className={`font-mono ${accent ?? ''}`}
+        style={accent ? undefined : { color: 'var(--text-primary)' }}>{value}</p>
+      {sub && <p className="text-[9px]" style={{ color: 'var(--text-muted)' }}>{sub}</p>}
+    </div>
   )
 }

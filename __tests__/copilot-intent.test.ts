@@ -107,6 +107,39 @@ describe('Copilot intent classifier', () => {
     })
   })
 
+  describe('cost summary (V3.0)', () => {
+    it('"今天 AI 花了多少钱" → cost_summary today', () => {
+      const i = classifyIntent('今天 AI 花了多少钱')
+      expect(i.kind).toBe('cost_summary')
+      if (i.kind === 'cost_summary') expect(i.window).toBe('today')
+    })
+    it('"本月模型成本" → cost_summary month', () => {
+      const i = classifyIntent('本月模型成本')
+      expect(i.kind).toBe('cost_summary')
+      if (i.kind === 'cost_summary') expect(i.window).toBe('month')
+    })
+    it('"哪个模型最贵" → cost_summary most_expensive', () => {
+      const i = classifyIntent('哪个模型最贵')
+      expect(i.kind).toBe('cost_summary')
+      if (i.kind === 'cost_summary') expect(i.aspect).toBe('most_expensive')
+    })
+    it('"fallback 多吗" → cost_summary fallback', () => {
+      const i = classifyIntent('fallback 多吗？')
+      expect(i.kind).toBe('cost_summary')
+      if (i.kind === 'cost_summary') expect(i.aspect).toBe('fallback')
+    })
+    it('"哪个 stage 最烧钱" → cost_summary by_stage', () => {
+      const i = classifyIntent('哪个 stage 最烧钱')
+      expect(i.kind).toBe('cost_summary')
+      if (i.kind === 'cost_summary') expect(i.aspect).toBe('by_stage')
+    })
+    it('"看一下成本" → cost_summary general', () => {
+      const i = classifyIntent('看一下成本')
+      expect(i.kind).toBe('cost_summary')
+      if (i.kind === 'cost_summary') expect(i.aspect).toBe('general')
+    })
+  })
+
   describe('workflow status (V2.9)', () => {
     it('"哪个 workflow 卡住了" → workflow_status', () => {
       expect(classifyIntent('哪个 workflow 卡住了').kind).toBe('workflow_status')
