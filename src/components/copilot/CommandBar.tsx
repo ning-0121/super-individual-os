@@ -281,6 +281,67 @@ function ResponseCard({ resp }: { resp: CopilotResponse }) {
     )
   }
 
+  if (intent.kind === 'workflow_status') {
+    interface WfRun {
+      run_id: string; workflow_id: string; workflow_name: string
+      project_id: string | null; project_name: string | null
+      status: string; bottleneck_step_key: string | null
+      completed: number; total: number; failed: number
+    }
+    const runs = (payload.runs as WfRun[]) ?? []
+    const activeCount = (payload.active_count as number) ?? 0
+    const blockedCount = (payload.blocked_count as number) ?? 0
+    return (
+      <>
+        <div className="flex items-center gap-2 mb-2 text-cyan-400">
+          <ShieldAlert size={12} />
+          <p className="text-xs font-semibold uppercase tracking-wider">
+            Workflow 状态 ({activeCount})
+          </p>
+          {blockedCount > 0 && (
+            <span className="text-[9px] px-1 py-0.5 rounded text-amber-400"
+              style={{ background: 'rgba(251,191,36,0.12)' }}>
+              {blockedCount} blocked
+            </span>
+          )}
+        </div>
+        {runs.length === 0 ? (
+          <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+            没有活跃 workflow — 去任意项目的 Workflows tab 启动一个
+          </p>
+        ) : (
+          <div className="space-y-1">
+            {runs.slice(0, 5).map(r => (
+              <Link key={r.run_id}
+                href={r.project_id ? `/projects/${r.project_id}/workflows/${r.workflow_id}` : '#'}
+                className="flex items-center gap-2 text-[11px] p-2 rounded-lg hover:bg-white/5"
+                style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+                <code className="text-[9px] font-mono uppercase px-1 py-0.5 rounded"
+                  style={{
+                    background: r.status === 'blocked_approval' ? 'rgba(251,191,36,0.12)'
+                      : r.status === 'failed' ? 'rgba(248,113,113,0.12)' : 'rgba(52,211,153,0.12)',
+                    color: r.status === 'blocked_approval' ? '#fbbf24'
+                      : r.status === 'failed' ? '#f87171' : '#34d399',
+                  }}>
+                  {r.status}
+                </code>
+                <span style={{ color: 'var(--text-primary)' }}>{r.workflow_name}</span>
+                {r.bottleneck_step_key && (
+                  <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                    · bottleneck: <code className="font-mono">{r.bottleneck_step_key}</code>
+                  </span>
+                )}
+                <span className="ml-auto text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                  {r.completed}/{r.total}
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </>
+    )
+  }
+
   if (intent.kind === 'bulk_approve' || intent.kind === 'bulk_reject') {
     const processed = (payload.processed as number) ?? 0
     const succeeded = (payload.succeeded as number) ?? 0

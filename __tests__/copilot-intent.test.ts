@@ -107,6 +107,31 @@ describe('Copilot intent classifier', () => {
     })
   })
 
+  describe('workflow status (V2.9)', () => {
+    it('"哪个 workflow 卡住了" → workflow_status', () => {
+      expect(classifyIntent('哪个 workflow 卡住了').kind).toBe('workflow_status')
+    })
+    it('"workflow 卡住" 短问', () => {
+      expect(classifyIntent('workflow 卡住').kind).toBe('workflow_status')
+    })
+    it('"看工作流进度"', () => {
+      expect(classifyIntent('看工作流进度').kind).toBe('workflow_status')
+    })
+    it('"which workflow is blocked"', () => {
+      expect(classifyIntent('which workflow is blocked').kind).toBe('workflow_status')
+    })
+    it('"COO 汇报工作流" → manager_report finance_manager', () => {
+      const i = classifyIntent('COO 汇报工作流')
+      expect(i.kind).toBe('manager_report')
+      if (i.kind === 'manager_report') expect(i.role).toBe('finance_manager')
+    })
+    it('"CTO 看下开发 workflow" → manager_report engineering_manager', () => {
+      const i = classifyIntent('CTO 看下开发 workflow')
+      expect(i.kind).toBe('manager_report')
+      if (i.kind === 'manager_report') expect(i.role).toBe('engineering_manager')
+    })
+  })
+
   describe('bulk approve / reject (governance V2.4)', () => {
     it('"批准所有低风险事项" → bulk_approve low', () => {
       const i = classifyIntent('批准所有低风险事项')

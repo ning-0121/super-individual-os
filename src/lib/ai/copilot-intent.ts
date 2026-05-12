@@ -17,6 +17,8 @@ export type CopilotIntent =
   // V2.4 — governance
   | { kind: 'bulk_approve'; risk_label: 'low' | 'medium' | 'high' | 'critical' }
   | { kind: 'bulk_reject';  risk_label: 'low' | 'medium' | 'high' | 'critical' }
+  // V2.9 — workflow status check
+  | { kind: 'workflow_status' }
   | { kind: 'help' }
   | { kind: 'chat'; query: string }
 
@@ -116,6 +118,32 @@ const RULES: Rule[] = [
     build: () => ({ kind: 'bulk_reject', risk_label: 'critical' }),
   },
 
+  // V2.9 — workflow-flavored shortcuts (run BEFORE manager_report so that
+  // "哪个 workflow 卡住了" doesn't fall through to a generic CTO report)
+  {
+    any: [
+      '哪个 workflow 卡住', '哪个工作流卡住', 'workflow 卡住',
+      '哪个 workflow 阻塞了', '工作流卡点', '工作流瓶颈',
+      'which workflow is blocked', 'show active workflows',
+      '看 workflow 进度', '看工作流进度', 'workflow 进度',
+    ],
+    build: () => ({ kind: 'workflow_status' }),
+  },
+  // "让 COO 汇报工作流" / "CTO 看一下开发 workflow" — still go to manager_report
+  // but with auto_generate so a fresh slice is built that reads workflow runtime.
+  {
+    pattern: /(coo|运营经理|finance manager).*(workflow|工作流|进度)/i,
+    build: () => ({ kind: 'manager_report', role: 'finance_manager', auto_generate: true }),
+  },
+  {
+    pattern: /(cto|工程经理).*(workflow|工作流|开发|dev)/i,
+    build: () => ({ kind: 'manager_report', role: 'engineering_manager', auto_generate: true }),
+  },
+  {
+    pattern: /(cgo|增长经理).*(workflow|工作流|增长)/i,
+    build: () => ({ kind: 'manager_report', role: 'growth_manager', auto_generate: true }),
+  },
+
   // Blockers overview — must come BEFORE manager_report rules so phrases
   // like "今天谁有问题" / "哪个项目卡住了" route here.
   {
@@ -189,6 +217,7 @@ export const QUICK_ACTIONS: Array<{ label: string; sample: string; icon: string 
   { label: '今天该做什么',     sample: '今天要做什么',     icon: '📋' },
   { label: '哪里卡住了',       sample: '今天谁有问题',     icon: '🚧' },
   { label: '看待审批',         sample: '看下待审批',       icon: '🛡' },
+  { label: 'workflow 卡点',    sample: '哪个 workflow 卡住了', icon: '🔗' },
   { label: '批准所有低风险',   sample: '批准所有低风险事项', icon: '✅' },
   { label: '让所有经理汇报',   sample: '所有经理报告',     icon: '🤖' },
   { label: '看增长实验',       sample: '看下增长实验',     icon: '📈' },

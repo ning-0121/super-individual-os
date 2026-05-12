@@ -20,6 +20,13 @@ interface Report {
   project_id: string | null
   read_at: string | null
   generated_at: string
+  // V2.9 — workflow runtime surface
+  metrics?: {
+    active_workflows?: number
+    blocked_workflows?: number
+    bottleneck_step?: string | null
+    next_workflow_action?: string | null
+  }
 }
 
 const ROLE_META: Record<string, { label: string; emoji: string; color: string }> = {
@@ -176,6 +183,26 @@ export default function ManagerBriefings({ filterRole, compact }: Props) {
                       <p className="text-[10px] mb-1.5 line-clamp-2" style={{ color: 'var(--text-secondary)' }}>
                         <span className="text-cyan-400">→ </span>
                         {r.next_actions[0]}
+                      </p>
+                    )}
+                    {/* V2.9 — workflow indicators */}
+                    {(r.metrics?.active_workflows ?? 0) > 0 && (
+                      <div className="flex flex-wrap gap-1 mb-1.5">
+                        <span className="text-[8px] px-1 py-0.5 rounded font-mono text-cyan-400"
+                          style={{ background: 'rgba(34,211,238,0.08)' }}>
+                          {r.metrics?.active_workflows} active wf
+                        </span>
+                        {(r.metrics?.blocked_workflows ?? 0) > 0 && (
+                          <span className="text-[8px] px-1 py-0.5 rounded font-mono text-amber-400"
+                            style={{ background: 'rgba(251,191,36,0.08)' }}>
+                            {r.metrics?.blocked_workflows} blocked
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {r.metrics?.bottleneck_step && (
+                      <p className="text-[9px] mb-1.5 line-clamp-1" style={{ color: 'var(--text-muted)' }}>
+                        bottleneck: <code className="font-mono text-amber-400">{r.metrics.bottleneck_step}</code>
                       </p>
                     )}
                     {/* CEO chip + actions */}

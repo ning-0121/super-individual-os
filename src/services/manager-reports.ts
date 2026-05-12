@@ -34,10 +34,25 @@ export interface ReportInputs {
   // Optional context for richer summary
   recent_decisions_count?: number
   recent_failed_actions?: string[]      // e.g. ['github.pr.create', 'supabase.migration.apply_staging']
+  // V2.9 — Workflow Runtime signals
+  active_workflows_count?: number
+  blocked_workflows_count?: number      // status === 'blocked_approval'
+  failed_workflows_count?: number       // status === 'failed'
+  active_workflows?: Array<{
+    workflow_id: string
+    workflow_name: string
+    workflow_category?: string         // 'growth' | 'product' | 'content' | 'governance' | 'research'
+    run_id: string
+    run_status: string                 // running | blocked_approval | failed
+    bottleneck_step_key: string | null
+    next_action?: string | null
+    owner?: string | null
+    failed_step_count: number
+  }>
 }
 
 // ─────────────────────────────────────────
-// Output shape
+// Output shape (V2.9 — adds workflow surface)
 // ─────────────────────────────────────────
 export interface SynthesizedReport {
   title: string
@@ -48,6 +63,12 @@ export interface SynthesizedReport {
   confidence_score: number              // 0-1
   needs_user_intervention: boolean
   metrics: Record<string, unknown>
+  // V2.9 — workflow runtime fields surfaced separately for UI cards
+  active_workflows_count: number
+  blocked_workflows_count: number
+  bottleneck_step?: string | null       // workflow_name → step_key
+  owner_or_execution_unit?: string | null
+  next_workflow_action?: string | null
 }
 
 // ─────────────────────────────────────────
@@ -175,6 +196,11 @@ export function synthesizeReport(input: ReportInputs): SynthesizedReport {
     }
   }
 
+  // ── V2.9: Workflow Runtime overlay ──
+  // Each role focuses on a different slice of active workflow runs.
+  const wfOverlay = applyWorkflowOverlay(input, blockers, risks, next_actions)
+  if (wfOverlay.needs_intervention) needs_user_intervention = true
+
   // ── Default safety nets ──
   if (next_actions.length === 0) {
     next_actions.push('维持当前执行节奏；下个循环再汇报')
@@ -208,7 +234,134 @@ export function synthesizeReport(input: ReportInputs): SynthesizedReport {
       failed_runs_24h: input.failed_runs_24h,
       pending_approvals: input.pending_approvals,
       growth_running: input.growth_running ?? 0,
+      active_workflows: input.active_workflows_count ?? 0,
+      blocked_workflows: input.blocked_workflows_count ?? 0,
+      bottleneck_step: wfOverlay.bottleneck_step,
+      next_workflow_action: wfOverlay.next_workflow_action,
+      owner_or_execution_unit: wfOverlay.owner,
     },
+    active_workflows_count: input.active_workflows_count ?? 0,
+    blocked_workflows_count: input.blocked_workflows_count ?? 0,
+    bottleneck_step: wfOverlay.bottleneck_step,
+    owner_or_execution_unit: wfOverlay.owner,
+    next_workflow_action: wfOverlay.next_workflow_action,
+  }
+}
+
+// ─────────────────────────────────────────────────
+// V2.9 — Workflow overlay for synthesizeReport.
+// Pure: given the input + mutable arrays from caller, mutates them
+// in place to add workflow-derived blockers / risks / next_actions.
+// Returns the headline workflow facts that get attached to the output.
+// ─────────────────────────────────────────────────
+interface WorkflowOverlayResult {
+  needs_intervention: boolean
+  bottleneck_step: string | null
+  owner: string | null
+  next_workflow_action: string | null
+}
+
+function applyWorkflowOverlay(
+  input: ReportInputs,
+  blockers: string[], risks: string[], next_actions: string[],
+): WorkflowOverlayResult {
+  const all = input.active_workflows ?? []
+  if (all.length === 0) {
+    return { needs_intervention: false, bottleneck_step: null, owner: null, next_workflow_action: null }
+  }
+
+  // Which workflows does THIS role care about?
+  const filtered = filterWorkflowsForRole(input.role, all)
+  // Each role still cares about CEO-blocked gates universally — surface them.
+  const ceoBlocked = all.filter(w => w.run_status === 'blocked_approval')
+
+  const failed = filtered.filter(w => w.run_status === 'failed')
+  const blockedApproval = filtered.filter(w => w.run_status === 'blocked_approval')
+  const running = filtered.filter(w => w.run_status === 'running')
+
+  // Risk / blocker copy by role
+  if (failed.length > 0) {
+    for (const w of failed.slice(0, 2)) {
+      blockers.push(`Workflow "${w.workflow_name}" 失败于 ${w.bottleneck_step_key ?? '(?)'}`)
+    }
+  }
+  if (blockedApproval.length > 0) {
+    for (const w of blockedApproval.slice(0, 2)) {
+      blockers.push(`Workflow "${w.workflow_name}" 阻塞在 ${w.bottleneck_step_key ?? '审批 gate'}`)
+    }
+  }
+  if (running.length > 0 && filtered.length > 0) {
+    next_actions.push(
+      `跟进 ${running.length} 个 ${roleScopeLabel(input.role)} workflow，当前步骤：${
+        running.map(w => `${w.workflow_name}→${w.bottleneck_step_key ?? '?'}`).join('；')
+      }`,
+    )
+  }
+
+  // CEO sees the union, plus governance focus on gates
+  let needs_intervention = false
+  if (input.role === 'ceo') {
+    if (ceoBlocked.length > 0) {
+      needs_intervention = true
+      next_actions.unshift(`处理 ${ceoBlocked.length} 个 workflow 审批 gate`)
+    }
+    // Resource conflict heuristic: ≥3 workflows running on same project
+    if (running.length >= 3) {
+      risks.push(`同时运行 ${running.length} 个 workflow — 资源可能冲突`)
+    }
+  }
+
+  // CSO: blocked_approval is a queue risk
+  if (input.role === 'risk_manager' && blockedApproval.length > 0) {
+    risks.push(`${blockedApproval.length} 个 workflow 卡在审批 gate — 决策延迟即风险`)
+  }
+
+  const headline = blockedApproval[0] ?? failed[0] ?? running[0] ?? filtered[0]
+  return {
+    needs_intervention,
+    bottleneck_step: headline
+      ? `${headline.workflow_name}→${headline.bottleneck_step_key ?? '(?)'}`
+      : null,
+    owner: headline?.owner ?? null,
+    next_workflow_action: headline?.next_action
+      ?? (headline?.bottleneck_step_key ? `推进步骤 ${headline.bottleneck_step_key}` : null),
+  }
+}
+
+function filterWorkflowsForRole(
+  role: string,
+  all: NonNullable<ReportInputs['active_workflows']>,
+): NonNullable<ReportInputs['active_workflows']> {
+  switch (role) {
+    case 'engineering_manager':                          // CTO: product / coding-flavored
+      return all.filter(w => ['product','research'].includes(w.workflow_category ?? ''))
+    case 'design_manager':                               // CPO: product
+      return all.filter(w => w.workflow_category === 'product')
+    case 'growth_manager':                               // CGO: growth + content
+      return all.filter(w => ['growth','content'].includes(w.workflow_category ?? ''))
+    case 'qa_manager':                                   // QA: product (QA gates) + governance
+      return all.filter(w => ['product','governance'].includes(w.workflow_category ?? ''))
+    case 'finance_manager':                              // COO: all workflows (operating view)
+      return all
+    case 'risk_manager':                                 // CSO: all (risk surface)
+      return all
+    case 'ceo':                                          // CEO: all (top-level)
+      return all
+    default:
+      return all
+  }
+}
+
+function roleScopeLabel(role: string): string {
+  switch (role) {
+    case 'engineering_manager': return '技术'
+    case 'design_manager':      return '产品'
+    case 'growth_manager':      return '增长'
+    case 'qa_manager':          return 'QA'
+    case 'finance_manager':     return '运营'
+    case 'risk_manager':        return '风险'
+    case 'ceo':                 return ''
+    default:                    return ''
   }
 }
 
@@ -323,6 +476,81 @@ export async function gatherReportInputs(
     .select('id', { count: 'exact', head: true })
     .eq('user_id', userId).gte('created_at', since7d)
 
+  // ─── V2.9 — Workflow runtime signals ───────────────────────
+  let activeWorkflowsQ = supabase.from('workflow_runs')
+    .select('id, status, bottleneck_step_key, workflow_id, project_id, owner_unit_id')
+    .eq('user_id', userId)
+    .in('status', ['running','blocked_approval','pending','failed'])
+  if (projectIds && projectIds.length > 0) activeWorkflowsQ = activeWorkflowsQ.in('project_id', projectIds)
+  const { data: wfRuns } = await activeWorkflowsQ
+
+  const activeRuns = (wfRuns ?? []).filter(r => r.status !== 'failed')
+  const failedRuns = (wfRuns ?? []).filter(r => r.status === 'failed')
+  const blockedRuns = (wfRuns ?? []).filter(r => r.status === 'blocked_approval')
+
+  const active_workflows: ReportInputs['active_workflows'] = []
+  if ((wfRuns ?? []).length > 0) {
+    const wfIds = [...new Set((wfRuns ?? []).map(r => r.workflow_id as string))]
+    const ownerIds = [...new Set((wfRuns ?? []).map(r => r.owner_unit_id as string | null).filter(Boolean) as string[])]
+
+    const [{ data: wfs }, { data: units }] = await Promise.all([
+      supabase.from('workflows').select('id, name, metadata').in('id', wfIds),
+      ownerIds.length
+        ? supabase.from('execution_units').select('id, name, avatar').in('id', ownerIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; name: string; avatar: string }> }),
+    ])
+    const wfMap = new Map((wfs ?? []).map(w => [
+      w.id as string,
+      {
+        name: w.name as string,
+        category: (w.metadata as Record<string, unknown> | null)?.category as string | undefined,
+      },
+    ]))
+    const ownerMap = new Map(
+      ((units ?? []) as Array<{ id: string; name: string; avatar: string }>)
+        .map(u => [u.id, `${u.avatar ?? '🤖'} ${u.name}`]),
+    )
+
+    // Try to derive workflow category from template id stored in metadata
+    // (set on creation). Fallback to 'product' if missing.
+    for (const r of (wfRuns ?? [])) {
+      const wf = wfMap.get(r.workflow_id as string)
+      const meta = (wfs ?? []).find(w => w.id === r.workflow_id)?.metadata as Record<string, unknown> | null
+      const templateId = (meta?.template_id as string) ?? ''
+      let category: string | undefined = wf?.category
+      if (!category && templateId) {
+        if (templateId.includes('content'))         category = 'content'
+        else if (templateId.includes('launch'))     category = 'growth'
+        else if (templateId.includes('customer'))   category = 'growth'
+        else if (templateId.includes('product'))    category = 'product'
+        else if (templateId.includes('ceo'))        category = 'governance'
+      }
+      // Step-run lookup for failed step count + next_action heuristic
+      const { data: stepRuns } = await supabase.from('workflow_step_runs')
+        .select('status, step_key')
+        .eq('user_id', userId).eq('workflow_run_id', r.id)
+      const failed_step_count = (stepRuns ?? []).filter(s => s.status === 'failed' || s.status === 'escalated').length
+      const nextActionFrom = (stepRuns ?? []).find(s => s.status === 'ready' || s.status === 'blocked_approval')
+      const nextAction = nextActionFrom
+        ? (nextActionFrom.status === 'blocked_approval'
+            ? `approve ${nextActionFrom.step_key} gate`
+            : `dispatch ${nextActionFrom.step_key}`)
+        : (r.bottleneck_step_key ? `推进 ${r.bottleneck_step_key}` : null)
+
+      active_workflows.push({
+        workflow_id: r.workflow_id as string,
+        workflow_name: wf?.name ?? '(workflow)',
+        workflow_category: category,
+        run_id: r.id as string,
+        run_status: r.status as string,
+        bottleneck_step_key: (r.bottleneck_step_key as string | null) ?? null,
+        next_action: nextAction,
+        owner: r.owner_unit_id ? ownerMap.get(r.owner_unit_id as string) ?? null : null,
+        failed_step_count,
+      })
+    }
+  }
+
   // Names for title
   let project_name: string | undefined
   let system_name: string | undefined
@@ -353,6 +581,10 @@ export async function gatherReportInputs(
     recent_failed_actions,
     project_name,
     system_name,
+    active_workflows_count: activeRuns.length,
+    blocked_workflows_count: blockedRuns.length,
+    failed_workflows_count: failedRuns.length,
+    active_workflows,
   }
 }
 

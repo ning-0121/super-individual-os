@@ -4,6 +4,7 @@ import { classifyIntent, type CopilotIntent } from '@/lib/ai/copilot-intent'
 import { generateManagerReport, listManagerReports } from '@/services/manager-reports'
 import { resolveAllRequiredRoles } from '@/services/managers'
 import { RISK_ORDER, type RiskLabel } from '@/lib/approvals/risk'
+import { listActiveWorkflowRuns } from '@/services/workflow-runtime'
 
 // POST /api/ai/copilot
 // Body: { input: string }
@@ -117,6 +118,18 @@ async function loadPayload(
       return {
         blocked_reports: blocked,
         stuck_tasks: stuckTasks ?? [],
+      }
+    }
+    case 'workflow_status': {
+      // V2.9 — surface active workflow runs (top 10) for Copilot
+      const runs = await listActiveWorkflowRuns(supabase, userId, 10)
+      const blocked = runs.filter(r => r.status === 'blocked_approval')
+      const failed_or_stuck = runs.filter(r => r.status === 'failed')
+      return {
+        active_count: runs.length,
+        blocked_count: blocked.length,
+        failed_count: failed_or_stuck.length,
+        runs,
       }
     }
     case 'bulk_approve':
