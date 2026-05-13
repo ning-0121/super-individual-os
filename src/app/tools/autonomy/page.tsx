@@ -10,6 +10,13 @@ interface Capability {
   manager_role?: string; require_qa: boolean; require_ceo: boolean; description: string
 }
 
+interface LocalAgentStatusData {
+  online_count: number
+  sessions: Array<{ id: string; hostname: string | null; os: string | null; cursor_version: string | null; status: string; last_heartbeat: string | null; derived_status: 'online' | 'offline' | 'error'; capabilities: string[] | null }>
+  capabilities: { allowed: string[]; blocked: string[] }
+  recent_runs: Array<{ id: string; action: string; status: string; started_at: string; error_message: string | null }>
+}
+
 interface AutonomyData {
   capabilities: Capability[]
   connected_tools: string[]
@@ -32,12 +39,17 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function ToolAutonomyPage() {
   const [data, setData] = useState<AutonomyData | null>(null)
+  const [laStatus, setLaStatus] = useState<LocalAgentStatusData | null>(null)
   const [loading, setLoading] = useState(true)
 
   async function load() {
     setLoading(true)
-    const r = await fetch('/api/tool-autonomy')
+    const [r, rLA] = await Promise.all([
+      fetch('/api/tool-autonomy'),
+      fetch('/api/local-agent/status'),
+    ])
     if (r.ok) setData(await r.json())
+    if (rLA.ok) setLaStatus(await rLA.json())
     setLoading(false)
   }
   useEffect(() => { load() }, [])
@@ -214,28 +226,105 @@ export default function ToolAutonomyPage() {
             )}
           </div>
 
-          {/* Local agents */}
+          {/* Local Agent V0 — read-only handshake */}
           <div className="glass rounded-xl p-5 mb-4">
-            <div className="flex items-center gap-2 mb-3 text-pink-400">
+            <div className="flex items-center gap-2 mb-3 text-orange-400">
               <Bot size={13} />
-              <span className="text-xs font-semibold uppercase tracking-wider">Local Agents</span>
+              <span className="text-xs font-semibold uppercase tracking-wider">Local Agent · V0 只读</span>
+              {laStatus && (
+                <span className="ml-auto text-[10px] inline-flex items-center gap-1"
+                  style={{ color: laStatus.online_count > 0 ? '#34d399' : '#94a3b8' }}>
+                  <span className="inline-block w-1.5 h-1.5 rounded-full"
+                    style={{ background: laStatus.online_count > 0 ? '#34d399' : '#94a3b8' }} />
+                  {laStatus.online_count} 在线
+                </span>
+              )}
             </div>
-            {data.local_agents.length === 0 ? (
+
+            <p className="text-[10px] mb-3" style={{ color: 'var(--text-muted)' }}>
+              V0 只允许 <span className="text-emerald-400">读操作</span>（git_status, list_directory, ...）。
+              任何写文件 / shell / push / 部署都会被拒绝，原因 <code className="font-mono">V0 only supports read-only local actions</code>。
+            </p>
+
+            {/* Allowed vs blocked capabilities */}
+            {laStatus && (
+              <div className="grid grid-cols-2 gap-2 mb-3 text-[10px]">
+                <div className="rounded-lg p-2"
+                  style={{ background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.25)' }}>
+                  <p className="text-emerald-400 mb-1 font-semibold">允许（{laStatus.capabilities.allowed.length}）</p>
+                  <div className="flex flex-wrap gap-1">
+                    {laStatus.capabilities.allowed.map(a => (
+                      <code key={a} className="font-mono px-1 rounded"
+                        style={{ background: 'rgba(52,211,153,0.12)', color: '#34d399' }}>{a}</code>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-lg p-2"
+                  style={{ background: 'rgba(248,113,113,0.05)', border: '1px solid rgba(248,113,113,0.25)' }}>
+                  <p className="text-red-400 mb-1 font-semibold">V0 拒绝（{laStatus.capabilities.blocked.length}）</p>
+                  <div className="flex flex-wrap gap-1">
+                    {laStatus.capabilities.blocked.map(a => (
+                      <code key={a} className="font-mono px-1 rounded"
+                        style={{ background: 'rgba(248,113,113,0.12)', color: '#f87171' }}>{a}</code>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Sessions */}
+            {(!laStatus || laStatus.sessions.length === 0) ? (
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                 尚无本地 Agent — 通过 POST /api/local-agent/register 注册（桌面客户端 V2.3+）
               </p>
             ) : (
               <div className="space-y-1.5">
-                {data.local_agents.map(a => (
+                {laStatus.sessions.map(a => (
                   <div key={a.id} className="text-[11px] p-2 rounded-lg"
                     style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
                     <div className="flex items-center gap-2">
-                      <span className="text-pink-400 font-mono">{a.hostname || '(unnamed)'}</span>
-                      <span style={{ color: 'var(--text-muted)' }}>· {a.os}</span>
-                      <span className="ml-auto text-[10px]" style={{ color: 'var(--text-muted)' }}>{a.status}</span>
+                      <span className="inline-block w-1.5 h-1.5 rounded-full"
+                        style={{
+                          background: a.derived_status === 'online' ? '#34d399'
+                            : a.derived_status === 'error' ? '#f87171' : '#94a3b8',
+                        }} />
+                      <span className="font-mono" style={{ color: 'var(--text-primary)' }}>
+                        {a.hostname || '(unnamed)'}
+                      </span>
+                      <span style={{ color: 'var(--text-muted)' }}>· {a.os ?? ''} {a.cursor_version ? `· cursor ${a.cursor_version}` : ''}</span>
+                      <span className="ml-auto text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                        {a.derived_status} · {a.last_heartbeat ? new Date(a.last_heartbeat).toLocaleTimeString('zh-CN') : 'never'}
+                      </span>
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Recent local-agent runs */}
+            {laStatus && laStatus.recent_runs.length > 0 && (
+              <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
+                <p className="text-[9px] uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-muted)' }}>
+                  最近 local_agent 请求
+                </p>
+                <div className="space-y-1">
+                  {laStatus.recent_runs.map(r => (
+                    <div key={r.id} className="flex items-center gap-2 text-[10px]">
+                      <code className="font-mono px-1 rounded"
+                        style={{
+                          background: r.status === 'success' ? 'rgba(52,211,153,0.12)'
+                            : r.status === 'error' ? 'rgba(248,113,113,0.12)'
+                            : 'rgba(148,163,184,0.12)',
+                          color: r.status === 'success' ? '#34d399'
+                            : r.status === 'error' ? '#f87171' : '#94a3b8',
+                        }}>{r.status}</code>
+                      <code style={{ color: 'var(--text-primary)' }}>{r.action}</code>
+                      <span className="ml-auto" style={{ color: 'var(--text-muted)' }}>
+                        {new Date(r.started_at).toLocaleTimeString('zh-CN')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

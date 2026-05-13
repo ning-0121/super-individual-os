@@ -11,6 +11,10 @@ import {
   type ModelRunRow,
 } from '@/lib/cost/aggregate'
 import { evaluateGuardrails, DEFAULT_GUARDRAILS } from '@/lib/cost/guardrails'
+import {
+  classifyLocalAgentAction, deriveAgentStatus,
+  listReadOnlyActions, listDestructiveActions,
+} from '@/lib/local-agent/policy'
 
 // POST /api/ai/copilot
 // Body: { input: string }
@@ -192,6 +196,49 @@ async function loadPayload(
         processed: ids.length,
         succeeded: results.filter(r => r.ok).length,
         items: results,
+      }
+    }
+    case 'local_agent_status': {
+      const { data: sessionsRaw } = await supabase.from('local_agent_sessions')
+        .select('id, hostname, os, cursor_version, status, last_heartbeat')
+        .eq('user_id', userId)
+        .order('last_heartbeat', { ascending: false, nullsFirst: false })
+        .limit(5)
+      const sessions = (sessionsRaw ?? []).map(s => ({
+        ...s,
+        derived_status: deriveAgentStatus({
+          status: s.status as string,
+          last_heartbeat: s.last_heartbeat as string | null,
+        }),
+      }))
+      const online = sessions.filter(s => s.derived_status === 'online')
+
+      // Probe verdict — if user asked for a specific read action, show whether
+      // it would be allowed (it will be; this is the "V0 only reads" reassurance).
+      const probe = intent.probe ?? 'general'
+      const verdict = probe === 'general' ? null : classifyLocalAgentAction(probe)
+
+      // Most recent matching local_agent run for this probe (if any)
+      let last_result: { id: string; action: string; status: string; result: unknown; finished_at: string | null } | null = null
+      if (probe !== 'general') {
+        const { data: r } = await supabase.from('tool_runs')
+          .select('id, action, status, result, finished_at')
+          .eq('user_id', userId)
+          .eq('action', `local_agent.${probe}`)
+          .order('started_at', { ascending: false }).limit(1).maybeSingle()
+        last_result = r ?? null
+      }
+
+      return {
+        online_count: online.length,
+        sessions,
+        probe,
+        verdict,
+        last_result,
+        capabilities: {
+          allowed: listReadOnlyActions(),
+          blocked: listDestructiveActions(),
+        },
       }
     }
     case 'help':

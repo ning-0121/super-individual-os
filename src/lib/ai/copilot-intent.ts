@@ -19,6 +19,8 @@ export type CopilotIntent =
   | { kind: 'bulk_reject';  risk_label: 'low' | 'medium' | 'high' | 'critical' }
   // V2.9 — workflow status check
   | { kind: 'workflow_status' }
+  // V3.1 — local agent status / read-only query
+  | { kind: 'local_agent_status'; probe?: 'git_status' | 'git_branch' | 'npm_test_status' | 'build_status' | 'general' }
   // V3.0 — cost dashboard
   | { kind: 'cost_summary';
       window?: 'today' | 'week' | 'month'
@@ -153,6 +155,29 @@ const RULES: Rule[] = [
     build: () => ({ kind: 'cost_summary', aspect: 'general' }),
   },
 
+  // V3.1 — Local Agent (must run BEFORE manager_report; phrases like
+  // "看一下 git 状态" / "本地 agent 在线吗" should land here, not in CTO report)
+  {
+    any: ['本地 agent', 'local agent', '本地代理', '桌面 agent', 'desktop agent'],
+    build: () => ({ kind: 'local_agent_status', probe: 'general' }),
+  },
+  {
+    any: ['看一下 git 状态', 'git 状态', 'git status', '本地 git'],
+    build: () => ({ kind: 'local_agent_status', probe: 'git_status' }),
+  },
+  {
+    any: ['当前分支', '哪个分支', 'git branch', '本地分支'],
+    build: () => ({ kind: 'local_agent_status', probe: 'git_branch' }),
+  },
+  {
+    any: ['本地测试过了吗', '本地测试状态', 'npm test 状态', 'vitest 状态'],
+    build: () => ({ kind: 'local_agent_status', probe: 'npm_test_status' }),
+  },
+  {
+    any: ['build 状态', '本地构建', '构建状态'],
+    build: () => ({ kind: 'local_agent_status', probe: 'build_status' }),
+  },
+
   // V2.9 — workflow-flavored shortcuts (run BEFORE manager_report so that
   // "哪个 workflow 卡住了" doesn't fall through to a generic CTO report)
   {
@@ -258,4 +283,5 @@ export const QUICK_ACTIONS: Array<{ label: string; sample: string; icon: string 
   { label: '让所有经理汇报',   sample: '所有经理报告',     icon: '🤖' },
   { label: '看增长实验',       sample: '看下增长实验',     icon: '📈' },
   { label: '启动新创业',       sample: '我想做一个新项目', icon: '✨' },
+  { label: '本地 agent 状态',  sample: '本地 agent 在线吗', icon: '💻' },
 ]

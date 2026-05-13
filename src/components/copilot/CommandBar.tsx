@@ -430,6 +430,96 @@ function ResponseCard({ resp }: { resp: CopilotResponse }) {
     )
   }
 
+  if (intent.kind === 'local_agent_status') {
+    interface LASession {
+      id: string; hostname: string | null; os: string | null
+      cursor_version: string | null
+      derived_status: 'online' | 'offline' | 'error'
+      last_heartbeat: string | null
+    }
+    interface Verdict { allowed: boolean; category: string; reason: string }
+    interface LastResult { action: string; status: string; result: unknown; finished_at: string | null }
+    const sessions = (payload.sessions as LASession[]) ?? []
+    const online = (payload.online_count as number) ?? 0
+    const probe = (payload.probe as string) ?? 'general'
+    const verdict = (payload.verdict as Verdict | null) ?? null
+    const lastResult = (payload.last_result as LastResult | null) ?? null
+    const caps = (payload.capabilities as { allowed: string[]; blocked: string[] }) ?? { allowed: [], blocked: [] }
+
+    return (
+      <>
+        <div className="flex items-center gap-2 mb-2 text-orange-400">
+          <ShieldAlert size={12} />
+          <p className="text-xs font-semibold uppercase tracking-wider">
+            Local Agent · V0 只读
+          </p>
+          <span className="ml-auto text-[10px] inline-flex items-center gap-1"
+            style={{ color: online > 0 ? '#34d399' : '#94a3b8' }}>
+            <span className="inline-block w-1.5 h-1.5 rounded-full"
+              style={{ background: online > 0 ? '#34d399' : '#94a3b8' }} />
+            {online} 在线
+          </span>
+        </div>
+
+        {sessions.length === 0 ? (
+          <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+            还没注册本地 Agent — 在 <Link href="/tools/autonomy" className="text-[var(--accent-light)]">/tools/autonomy</Link> 启动桌面端
+          </p>
+        ) : (
+          <div className="space-y-1 mb-2">
+            {sessions.slice(0, 3).map(s => (
+              <div key={s.id} className="flex items-center gap-2 text-[11px] p-2 rounded-lg"
+                style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+                <span className="inline-block w-1.5 h-1.5 rounded-full"
+                  style={{
+                    background: s.derived_status === 'online' ? '#34d399'
+                      : s.derived_status === 'error' ? '#f87171' : '#94a3b8',
+                  }} />
+                <span className="font-mono" style={{ color: 'var(--text-primary)' }}>
+                  {s.hostname || s.id.slice(0, 8)}
+                </span>
+                <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                  {s.os ?? ''}
+                </span>
+                <span className="ml-auto text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                  {s.derived_status}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {verdict && probe !== 'general' && (
+          <div className="text-[11px] p-2 rounded-lg mb-2"
+            style={{
+              background: verdict.allowed ? 'rgba(52,211,153,0.06)' : 'rgba(248,113,113,0.06)',
+              border: `1px solid ${verdict.allowed ? 'rgba(52,211,153,0.3)' : 'rgba(248,113,113,0.3)'}`,
+              color: verdict.allowed ? '#34d399' : '#f87171',
+            }}>
+            {verdict.allowed ? '✓ 允许' : '✗ 拒绝'}：<code className="font-mono">{probe}</code> — {verdict.reason}
+          </div>
+        )}
+
+        {lastResult && (
+          <div className="text-[10px] p-2 rounded-lg mb-2"
+            style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+            <p style={{ color: 'var(--text-muted)' }}>最近一次 <code className="font-mono">{lastResult.action}</code> · {lastResult.status}</p>
+            {lastResult.finished_at && (
+              <p style={{ color: 'var(--text-muted)' }}>{new Date(lastResult.finished_at).toLocaleString('zh-CN')}</p>
+            )}
+          </div>
+        )}
+
+        <p className="text-[10px] mt-2" style={{ color: 'var(--text-muted)' }}>
+          允许（{caps.allowed.length}）· V0 拒绝写 / shell / push / 部署（{caps.blocked.length}）
+        </p>
+        <Link href="/tools/autonomy" className="text-[10px] inline-flex items-center gap-1 mt-1 text-[var(--accent-light)]">
+          打开 Local Agent 面板 <ExternalLink size={9} />
+        </Link>
+      </>
+    )
+  }
+
   if (intent.kind === 'bulk_approve' || intent.kind === 'bulk_reject') {
     const processed = (payload.processed as number) ?? 0
     const succeeded = (payload.succeeded as number) ?? 0

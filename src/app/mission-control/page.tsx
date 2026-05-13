@@ -12,6 +12,7 @@ import LockedProjectBanner from '@/components/project-context/LockedProjectBanne
 import ActiveProjectHealth from '@/components/project-context/ActiveProjectHealth'
 import TodayCommandCard from '@/components/mission-control/TodayCommandCard'
 import CostPulseCard from '@/components/mission-control/CostPulseCard'
+import LocalAgentStatus from '@/components/mission-control/LocalAgentStatus'
 import ActiveWorkflowRuntime from '@/components/mission-control/ActiveWorkflowRuntime'
 
 interface MissionData {
@@ -124,6 +125,11 @@ export default function MissionControlPage() {
             <div className="lg:col-span-1">
               <CostPulseCard />
             </div>
+          </div>
+
+          {/* Local Agent V0 status */}
+          <div className="mb-4">
+            <LocalAgentStatus />
           </div>
 
           {/* Active Project Health — V2.5+ */}
