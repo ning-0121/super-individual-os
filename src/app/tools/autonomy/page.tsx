@@ -10,11 +10,20 @@ interface Capability {
   manager_role?: string; require_qa: boolean; require_ceo: boolean; description: string
 }
 
+interface LocalRun {
+  id: string; action: string; status: string
+  started_at: string; finished_at?: string | null
+  error_message: string | null
+  result?: Record<string, unknown> | null
+}
 interface LocalAgentStatusData {
   online_count: number
   sessions: Array<{ id: string; hostname: string | null; os: string | null; cursor_version: string | null; status: string; last_heartbeat: string | null; derived_status: 'online' | 'offline' | 'error'; capabilities: string[] | null }>
   capabilities: { allowed: string[]; blocked: string[] }
-  recent_runs: Array<{ id: string; action: string; status: string; started_at: string; error_message: string | null }>
+  recent_runs: LocalRun[]
+  pending: LocalRun[]
+  last_success: LocalRun | null
+  last_error: LocalRun | null
 }
 
 interface AutonomyData {
@@ -298,6 +307,59 @@ export default function ToolAutonomyPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Pending requests / last result / last error */}
+            {laStatus && (laStatus.pending.length > 0 || laStatus.last_success || laStatus.last_error) && (
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
+                <div className="rounded-lg p-2"
+                  style={{ background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.25)' }}>
+                  <p className="text-[10px] uppercase tracking-wider text-amber-400 mb-1">
+                    pending ({laStatus.pending.length})
+                  </p>
+                  {laStatus.pending.length === 0 ? (
+                    <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>队列为空</p>
+                  ) : (
+                    laStatus.pending.slice(0, 3).map(r => (
+                      <code key={r.id} className="block font-mono text-[10px]" style={{ color: 'var(--text-secondary)' }}>
+                        {r.action.replace(/^local_agent\./, '')}
+                      </code>
+                    ))
+                  )}
+                </div>
+                <div className="rounded-lg p-2"
+                  style={{ background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.25)' }}>
+                  <p className="text-[10px] uppercase tracking-wider text-emerald-400 mb-1">last success</p>
+                  {laStatus.last_success ? (
+                    <>
+                      <code className="block font-mono text-[10px]" style={{ color: 'var(--text-primary)' }}>
+                        {laStatus.last_success.action.replace(/^local_agent\./, '')}
+                      </code>
+                      <p className="text-[9px]" style={{ color: 'var(--text-muted)' }}>
+                        {laStatus.last_success.finished_at ? new Date(laStatus.last_success.finished_at).toLocaleString('zh-CN') : '—'}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>尚无成功记录</p>
+                  )}
+                </div>
+                <div className="rounded-lg p-2"
+                  style={{ background: 'rgba(248,113,113,0.05)', border: '1px solid rgba(248,113,113,0.25)' }}>
+                  <p className="text-[10px] uppercase tracking-wider text-red-400 mb-1">last error</p>
+                  {laStatus.last_error ? (
+                    <>
+                      <code className="block font-mono text-[10px]" style={{ color: 'var(--text-primary)' }}>
+                        {laStatus.last_error.action.replace(/^local_agent\./, '')}
+                      </code>
+                      <p className="text-[9px] line-clamp-2" style={{ color: 'var(--text-muted)' }}>
+                        {laStatus.last_error.error_message ?? ''}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>没有错误</p>
+                  )}
+                </div>
               </div>
             )}
 

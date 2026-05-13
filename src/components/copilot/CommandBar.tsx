@@ -503,10 +503,13 @@ function ResponseCard({ resp }: { resp: CopilotResponse }) {
         {lastResult && (
           <div className="text-[10px] p-2 rounded-lg mb-2"
             style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
-            <p style={{ color: 'var(--text-muted)' }}>最近一次 <code className="font-mono">{lastResult.action}</code> · {lastResult.status}</p>
-            {lastResult.finished_at && (
-              <p style={{ color: 'var(--text-muted)' }}>{new Date(lastResult.finished_at).toLocaleString('zh-CN')}</p>
-            )}
+            <p style={{ color: 'var(--text-muted)' }}>
+              最近一次 <code className="font-mono">{lastResult.action}</code> · {lastResult.status}
+              {lastResult.finished_at && (
+                <span> · {new Date(lastResult.finished_at).toLocaleString('zh-CN')}</span>
+              )}
+            </p>
+            <LocalAgentResultBody result={lastResult.result} probe={probe} />
           </div>
         )}
 
@@ -628,6 +631,48 @@ function SectionList({ icon: Icon, title, count, accent, empty, emptyAction, chi
       )}
     </>
   )
+}
+
+function LocalAgentResultBody({ result, probe }: { result: unknown; probe: string }) {
+  if (!result || typeof result !== 'object') return null
+  const r = result as Record<string, unknown>
+
+  if (probe === 'git_status') {
+    const branch_line = String(r.branch_line ?? '')
+    const changes = Array.isArray(r.changes) ? (r.changes as string[]) : []
+    return (
+      <div className="mt-1.5 font-mono text-[10px] leading-relaxed"
+        style={{ color: 'var(--text-secondary)' }}>
+        {branch_line && <div className="text-cyan-400">{branch_line}</div>}
+        {changes.length === 0 ? (
+          <div className="text-emerald-400">✓ working tree clean</div>
+        ) : changes.slice(0, 12).map((line, i) => (
+          <div key={i}>{line}</div>
+        ))}
+        {changes.length > 12 && (
+          <div style={{ color: 'var(--text-muted)' }}>… +{changes.length - 12} more</div>
+        )}
+      </div>
+    )
+  }
+  if (probe === 'git_branch') {
+    return (
+      <p className="mt-1 font-mono text-[11px] text-cyan-400">
+        {String(r.branch ?? '(detached)')}
+      </p>
+    )
+  }
+  if (probe === 'npm_test_status' || probe === 'build_status') {
+    return (
+      <p className="mt-1 font-mono text-[10px]" style={{ color: 'var(--text-secondary)' }}>
+        script_present: <span className={r.script_present ? 'text-emerald-400' : 'text-red-400'}>
+          {String(!!r.script_present)}
+        </span>
+        {r.command ? <span> · <code>{String(r.command)}</code></span> : null}
+      </p>
+    )
+  }
+  return null
 }
 
 function Cell({ label, value, sub, accent }: {

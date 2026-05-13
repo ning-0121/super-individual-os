@@ -29,11 +29,16 @@ export async function GET() {
   const online_count = sessions.filter(s => s.derived_status === 'online').length
 
   const { data: recent } = await supabase.from('tool_runs')
-    .select('id, action, status, started_at, finished_at, error_message')
+    .select('id, action, status, started_at, finished_at, error_message, result')
     .eq('user_id', user.id)
     .eq('tool', 'local_agent')
     .order('started_at', { ascending: false })
-    .limit(10)
+    .limit(20)
+
+  const all = recent ?? []
+  const pending = all.filter(r => r.status === 'pending_approval')
+  const last_success = all.find(r => r.status === 'success') ?? null
+  const last_error   = all.find(r => r.status === 'error') ?? null
 
   return Response.json({
     online_count,
@@ -42,6 +47,9 @@ export async function GET() {
       allowed: listReadOnlyActions(),
       blocked: listDestructiveActions(),
     },
-    recent_runs: recent ?? [],
+    recent_runs: all.slice(0, 10),
+    pending,
+    last_success,
+    last_error,
   })
 }

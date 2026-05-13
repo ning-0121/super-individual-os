@@ -20,7 +20,7 @@ export type CopilotIntent =
   // V2.9 — workflow status check
   | { kind: 'workflow_status' }
   // V3.1 — local agent status / read-only query
-  | { kind: 'local_agent_status'; probe?: 'git_status' | 'git_branch' | 'npm_test_status' | 'build_status' | 'general' }
+  | { kind: 'local_agent_status'; probe?: 'git_status' | 'git_branch' | 'npm_test_status' | 'build_status' | 'list_files' | 'general' }
   // V3.0 — cost dashboard
   | { kind: 'cost_summary';
       window?: 'today' | 'week' | 'month'
@@ -176,6 +176,10 @@ const RULES: Rule[] = [
   {
     any: ['build 状态', '本地构建', '构建状态'],
     build: () => ({ kind: 'local_agent_status', probe: 'build_status' }),
+  },
+  {
+    any: ['本地文件结构', '本地目录', '项目目录结构', 'list files', '列出本地文件'],
+    build: () => ({ kind: 'local_agent_status', probe: 'list_files' }),
   },
 
   // V2.9 — workflow-flavored shortcuts (run BEFORE manager_report so that

@@ -19,6 +19,7 @@ export interface LocalAgentActionDef {
 export const LOCAL_AGENT_READ_ONLY: ReadonlyArray<LocalAgentActionDef> = [
   { action: 'read_project_files', category: 'read', description: '读取项目文件内容（受路径过滤）' },
   { action: 'list_directory',     category: 'read', description: '列出某个目录的文件结构' },
+  { action: 'list_files',         category: 'read', description: '列出某个目录的文件（list_directory 的别名）' },
   { action: 'git_status',         category: 'read', description: '查询当前 git 工作区状态' },
   { action: 'git_branch',         category: 'read', description: '查询当前分支信息' },
   { action: 'npm_test_status',    category: 'read', description: '查询 npm test / vitest 最近一次结果' },
