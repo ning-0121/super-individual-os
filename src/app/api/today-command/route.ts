@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { apiError } from '@/lib/observability'
 import { pickTodayCommand, type TodayInputs } from '@/lib/mission-control/today-command'
+import { startOfToday } from '@/lib/cost/aggregate'
 
 // GET /api/today-command
 // Aggregates the 5 first-screen signals and runs the pure prioritizer.
@@ -10,6 +11,7 @@ export async function GET() {
   if (!user) return apiError('Unauthorized', { status: 401 })
 
   const since24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
+  const todayStart = startOfToday()
 
   // Pull in parallel
   const [
@@ -18,6 +20,8 @@ export async function GET() {
     { data: lockedRows },
     { count: failedRuns24h },
     { data: mustTasks },
+    { count: blockedWorkflows },
+    { data: todayModelRuns },
   ] = await Promise.all([
     supabase.from('approval_requests')
       .select('id, title, action_type, risk_label, required_approvers, created_at')
@@ -38,6 +42,13 @@ export async function GET() {
       .eq('user_id', user.id).eq('priority', 'must')
       .not('workflow_status', 'in', '(completed,approved,archived)')
       .order('updated_at', { ascending: false }).limit(1),
+    // Workflows stuck waiting on a human (blocked_approval) — the autonomy loop
+    // can't clear these itself, so they belong on the "today" radar.
+    supabase.from('workflow_runs').select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id).eq('status', 'blocked_approval'),
+    // Today's model spend (summed in JS — cost_usd_estimated lives on each run).
+    supabase.from('model_runs').select('cost_usd_estimated')
+      .eq('user_id', user.id).gte('created_at', todayStart).limit(5000),
   ])
 
   // ─── Approval slices ───
@@ -144,6 +155,12 @@ export async function GET() {
       high_pending: highPending.length,
       manager_intervention: (managerReports ?? []).length,
       failed_runs_24h: failedRuns24h ?? 0,
+      blocked_workflows: blockedWorkflows ?? 0,
+      today_cost_usd: Math.round(
+        (todayModelRuns ?? []).reduce(
+          (s, r) => s + Number((r as { cost_usd_estimated?: number }).cost_usd_estimated ?? 0), 0,
+        ) * 1_000_000,
+      ) / 1_000_000,
     },
     generated_at: new Date().toISOString(),
   })

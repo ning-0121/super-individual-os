@@ -4,7 +4,7 @@ import Link from 'next/link'
 import Sidebar from '@/components/layout/Sidebar'
 import {
   Loader2, RefreshCw, Activity, AlertTriangle, Crown, Layers,
-  Bot, Sparkles, ExternalLink, TrendingUp, TrendingDown,
+  Bot, Sparkles, ExternalLink, TrendingUp, TrendingDown, ArrowRight,
 } from 'lucide-react'
 import CommandBar from '@/components/copilot/CommandBar'
 import ManagerBriefings from '@/components/manager-reports/ManagerBriefings'
@@ -56,6 +56,16 @@ const ROLE_META: Record<string, { label: string; emoji: string; color: string }>
 
 const CANONICAL_ROLES = ['engineering_manager', 'finance_manager', 'design_manager', 'qa_manager', 'growth_manager', 'risk_manager'] as const
 
+// First-run venture templates — each seeds the AI drafter with a concrete prompt.
+const VENTURE_TEMPLATES = [
+  { name: 'AI 内容工厂',   desc: '用 AI 人格批量产出短视频脚本 / 历史人物脱口秀', icon: '🎬',
+    seed: '我想做一个 AI 内容工厂：用 AI 人格批量产出历史人物脱口秀' },
+  { name: '外贸增长系统', desc: '精准触达海外目标客户 + 转化漏斗', icon: '🌍',
+    seed: '我想做一个外贸增长系统：精准触达海外目标客户 + 转化漏斗' },
+  { name: '产品开发系统', desc: '从 MVP 到首批付费用户的 SaaS 流水线', icon: '🛠',
+    seed: '我想做一个 SaaS 产品开发系统：从 MVP 到首批付费用户' },
+] as const
+
 export default function MissionControlPage() {
   const [data, setData] = useState<MissionData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -80,6 +90,66 @@ export default function MissionControlPage() {
   }
 
   if (!data) return null
+
+  // ── First-run: no systems yet → focused onboarding, not 10 empty cards ──
+  if (data.system_matrix.length === 0) {
+    return (
+      <div className="flex h-screen bg-grid" style={{ backgroundColor: 'var(--bg-base)' }}>
+        <Sidebar />
+        <main className="flex-1 overflow-auto flex items-center justify-center p-8">
+          <div className="max-w-2xl w-full">
+            <div className="text-center mb-8">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full mb-4"
+                style={{ background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.3)' }}>
+                <Sparkles size={12} className="text-violet-400" />
+                <span className="text-[11px] font-mono uppercase tracking-widest text-violet-400">欢迎来到 Super Individual OS</span>
+              </div>
+              <h1 className="text-2xl font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                用一句话，开张你的第一家「一人公司」
+              </h1>
+              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                AI 联合创始人会起草 System / 项目 / 任务 / 预算 / 汇报节奏 —— 你审一遍，5 个 AI 经理就开始替你巡检、推进、汇报。
+              </p>
+            </div>
+
+            <p className="text-[10px] uppercase tracking-widest mb-2 px-1" style={{ color: 'var(--text-muted)' }}>
+              从一个模板起步
+            </p>
+            <div className="space-y-2 mb-4">
+              {VENTURE_TEMPLATES.map(tpl => (
+                <Link key={tpl.name}
+                  href={`/new-venture?seed=${encodeURIComponent(tpl.seed)}`}
+                  className="flex items-center gap-3 p-4 rounded-xl transition-all hover:bg-white/5"
+                  style={{ background: 'var(--bg-elevated, rgba(255,255,255,0.02))', border: '1px solid var(--border)' }}>
+                  <span className="text-2xl">{tpl.icon}</span>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{tpl.name}</p>
+                    <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>{tpl.desc}</p>
+                  </div>
+                  <span className="text-xs inline-flex items-center gap-1 text-violet-400">
+                    用 AI 起草 <ArrowRight size={12} />
+                  </span>
+                </Link>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2 justify-center">
+              <Link href="/new-venture"
+                className="inline-flex items-center gap-1.5 text-sm font-semibold px-5 py-2.5 rounded-lg"
+                style={{ background: 'linear-gradient(90deg, #f472b6, #a78bfa)', color: '#fff' }}>
+                <Sparkles size={13} /> 自定义我的 Venture
+              </Link>
+              <Link href="/systems"
+                className="text-xs px-4 py-2.5 rounded-lg"
+                style={{ color: 'var(--text-muted)', border: '1px solid var(--border)' }}>
+                手动建空 System
+              </Link>
+            </div>
+          </div>
+        </main>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-screen bg-grid" style={{ backgroundColor: 'var(--bg-base)' }}>

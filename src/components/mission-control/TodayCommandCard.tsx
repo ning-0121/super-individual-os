@@ -25,7 +25,15 @@ interface CommandPayload {
     high_pending: number
     manager_intervention: number
     failed_runs_24h: number
+    blocked_workflows: number
+    today_cost_usd: number
   }
+}
+
+function fmtUsd(usd: number): string {
+  if (!usd || usd === 0) return '$0'
+  if (usd < 0.01) return '<$0.01'
+  return `$${usd.toFixed(2)}`
 }
 
 const TONE: Record<string, { bar: string; bg: string; border: string; ring: string; chip: string }> = {
@@ -107,6 +115,43 @@ export default function TodayCommandCard() {
             </Link>
             <p className="text-[9px] mt-1 text-center" style={{ color: 'var(--text-muted)' }}>一键执行</p>
           </div>
+        </div>
+
+        {/* The 3-number "today radar" — one glance: what needs me, what's stuck, what it costs */}
+        <div className="flex items-center gap-2 text-[11px]">
+          <Link href="/approvals"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors hover:bg-white/5"
+            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border)' }}>
+            <span style={{ color: 'var(--text-muted)' }}>待批</span>
+            <span className="font-mono font-semibold"
+              style={{ color: data.counts.pending_total > 0 ? '#fbbf24' : '#34d399' }}>
+              {data.counts.pending_total}
+            </span>
+          </Link>
+          <Link href="/projects"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors hover:bg-white/5"
+            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border)' }}>
+            <span style={{ color: 'var(--text-muted)' }}>卡住 workflow</span>
+            <span className="font-mono font-semibold"
+              style={{ color: data.counts.blocked_workflows > 0 ? '#fb923c' : '#34d399' }}>
+              {data.counts.blocked_workflows}
+            </span>
+          </Link>
+          <Link href="/cost"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors hover:bg-white/5"
+            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border)' }}>
+            <span style={{ color: 'var(--text-muted)' }}>今日成本</span>
+            <span className="font-mono font-semibold text-violet-400">
+              {fmtUsd(data.counts.today_cost_usd)}
+            </span>
+          </Link>
+          {data.counts.failed_runs_24h > 0 && (
+            <span className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg"
+              style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.3)' }}>
+              <span style={{ color: 'var(--text-muted)' }}>24h 失败</span>
+              <span className="font-mono font-semibold text-red-400">{data.counts.failed_runs_24h}</span>
+            </span>
+          )}
         </div>
 
       </div>
