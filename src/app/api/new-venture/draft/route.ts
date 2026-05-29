@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { apiError } from '@/lib/observability'
 import { callClaude } from '@/lib/ai/model-router'
+import { assertBudgetAllowed } from '@/services/cost-budget'
 
 // ─────────────────────────────────────────────────
 // V2.3 — New Venture: AI-drafted proposal
@@ -89,6 +90,12 @@ export async function POST(req: Request) {
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return apiError('AI 服务未配置（ANTHROPIC_API_KEY 缺失）', { status: 503 })
+  }
+
+  // Budget backstop — refuse to draft if the monthly hard cap is tripped.
+  const budget = await assertBudgetAllowed(supabase, user.id)
+  if (budget.blocked) {
+    return apiError(budget.reason ?? '成本硬上限触发', { status: 402 })
   }
 
   try {

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { routeModelForTask, callModel, recordModelRun, type TaskStage } from './model-router'
 import { executeAutonomousToolCall, type AutonomousToolCall, type ToolAutonomyResult } from '@/lib/tools/tool-autonomy'
+import { assertBudgetAllowed, BudgetExceededError } from '@/services/cost-budget'
 
 // ─────────────────────────────────────────────────
 // V2.2 — Tool Use Loop
@@ -95,6 +96,12 @@ export async function draftAndRun(
   supabase: SupabaseClient, userId: string,
   args: { stage: TaskStage; system?: string; prompt: string; task_run_id?: string },
 ): Promise<{ text: string }> {
+  // Pre-flight budget gate — backstop against runaway spend.
+  const budget = await assertBudgetAllowed(supabase, userId)
+  if (budget.blocked) {
+    throw new BudgetExceededError(budget.reason ?? '成本硬上限触发', budget.status)
+  }
+
   const choice = routeModelForTask(args.stage)
   const out = await callModel({ system: args.system, prompt: args.prompt }, choice)
   await recordModelRun(supabase, userId, {

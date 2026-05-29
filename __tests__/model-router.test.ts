@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest'
-import { routeModel, listAvailableProviders } from '@/lib/ai/model-router'
+import {
+  routeModel, listAvailableProviders,
+  ensureCallableChoice, isProviderImplemented,
+  type ModelChoice,
+} from '@/lib/ai/model-router'
 
 const origOpenAI = process.env.OPENAI_API_KEY
 const origGemini = process.env.GEMINI_API_KEY
@@ -46,3 +50,26 @@ describe('model router — without OpenAI/Gemini', () => {
 // NB: HAS_OPENAI / HAS_GEMINI are cached at module load. Per-test override
 // would require dynamic re-import; documented limitation. The unconfigured-env
 // suite above already verifies the conservative default routing.
+
+describe('ensureCallableChoice — Gemini footgun guard', () => {
+  it('marks anthropic + openai as implemented, gemini as not', () => {
+    expect(isProviderImplemented('anthropic')).toBe(true)
+    expect(isProviderImplemented('openai')).toBe(true)
+    expect(isProviderImplemented('gemini')).toBe(false)
+  })
+
+  it('passes through an implemented choice unchanged', () => {
+    const c: ModelChoice = { provider: 'anthropic', model: 'claude-x', reason: 'r' }
+    expect(ensureCallableChoice(c)).toEqual(c)
+    const o: ModelChoice = { provider: 'openai', model: 'gpt-x', reason: 'r' }
+    expect(ensureCallableChoice(o)).toEqual(o)
+  })
+
+  it('degrades a gemini choice to anthropic without throwing', () => {
+    const g: ModelChoice = { provider: 'gemini', model: 'gemini-1.5-pro', reason: 'multimodal' }
+    const out = ensureCallableChoice(g)
+    expect(out.provider).toBe('anthropic')
+    expect(out.reason).toMatch(/gemini not implemented/i)
+    expect(out.reason).toMatch(/multimodal/)   // preserves original reason
+  })
+})

@@ -68,3 +68,34 @@ export function evaluateGuardrails(
     banner_message: banner,
   }
 }
+
+// ─────────────────────────────────────────────────
+// V3.2 — Hard cap decision (pure)
+// Given an evaluated guardrail status, decide whether to BLOCK a new model
+// call. Only blocks at 'critical' (>=100% of threshold) and only when the
+// hard cap is enabled. Default-on: COST_HARD_CAP must be exactly "0" to opt out.
+// ─────────────────────────────────────────────────
+export interface BlockDecision {
+  blocked: boolean
+  reason?: string
+}
+
+export function isHardCapEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (env.COST_HARD_CAP ?? '1') !== '0'
+}
+
+export function shouldBlockModelCall(
+  status: GuardrailStatus,
+  opts: { enforce?: boolean } = {},
+): BlockDecision {
+  const enforce = opts.enforce ?? isHardCapEnabled()
+  if (!enforce) return { blocked: false }
+  if (status.overall_level !== 'critical') return { blocked: false }
+  const which = status.daily_level === 'critical' ? '今日' : '本月'
+  return {
+    blocked: true,
+    reason: `成本硬上限触发：${which}预算已用尽（${which === '今日'
+      ? Math.round(status.daily_pct * 100)
+      : Math.round(status.monthly_pct * 100)}%）。调高 COST_${which === '今日' ? 'DAILY' : 'MONTHLY'}_WARN_USD 或设 COST_HARD_CAP=0 解除。`,
+  }
+}

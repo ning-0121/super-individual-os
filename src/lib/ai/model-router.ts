@@ -2,7 +2,9 @@
 // V2.1 Part 6 — Model Router
 // Picks the best model for a given agent role / task kind.
 // V2.1 ships with Claude as the default executor for everything.
-// OpenAI / Gemini paths are stubs — flip when you add OPENAI_API_KEY etc.
+// OpenAI is fully wired (set OPENAI_API_KEY). Gemini is NOT implemented in
+// callModel yet — if a route selects it, ensureCallableChoice() degrades the
+// call to Claude instead of throwing. See callModel below.
 // ─────────────────────────────────────────────────
 
 export type ModelProvider = 'anthropic' | 'openai' | 'gemini'
@@ -205,10 +207,34 @@ export async function callOpenAI(input: ModelCallInput, modelOverride?: string):
   }
 }
 
+// Providers with a real implementation in callModel. Keep in sync with the
+// branches below — selectImplementedProvider() reads this to avoid routing to
+// a provider that would throw at call time.
+const IMPLEMENTED_PROVIDERS: ReadonlySet<ModelProvider> = new Set(['anthropic', 'openai'])
+
+export function isProviderImplemented(p: ModelProvider): boolean {
+  return IMPLEMENTED_PROVIDERS.has(p)
+}
+
+// Given a routing decision, return a choice that is guaranteed callable.
+// Gemini (and any future unimplemented provider) degrades to Anthropic rather
+// than crashing the request. The fallback is annotated in `reason` so the
+// model_runs audit trail shows what actually happened.
+export function ensureCallableChoice(choice: ModelChoice): ModelChoice {
+  if (isProviderImplemented(choice.provider)) return choice
+  return {
+    provider: 'anthropic',
+    model: ANTHROPIC_DEFAULT,
+    reason: `${choice.provider} not implemented → fell back to Claude (${choice.reason})`,
+  }
+}
+
 export async function callModel(input: ModelCallInput, choice: ModelChoice): Promise<ModelCallOutput> {
-  if (choice.provider === 'anthropic') return callClaude(input, choice.model)
-  if (choice.provider === 'openai')    return callOpenAI(input, choice.model)
-  throw new Error(`Provider ${choice.provider} not implemented yet`)
+  const callable = ensureCallableChoice(choice)
+  if (callable.provider === 'anthropic') return callClaude(input, callable.model)
+  if (callable.provider === 'openai')    return callOpenAI(input, callable.model)
+  // Unreachable: ensureCallableChoice guarantees an implemented provider.
+  return callClaude(input, ANTHROPIC_DEFAULT)
 }
 
 // ─────────────────────────────────────────────────
