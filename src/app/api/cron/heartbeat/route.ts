@@ -3,6 +3,10 @@ import { apiError, logger } from '@/lib/observability'
 import { advanceWorkflowRun } from '@/services/workflow-runtime'
 import { generateManagerReport, listManagerReports } from '@/services/manager-reports'
 import { startOfToday } from '@/lib/cost/aggregate'
+import { getBudgetStatus } from '@/services/cost-budget'
+import { buildDailyDigest, shouldSendDigestNow, type DigestInput } from '@/lib/notify/digest'
+import { deliverDigestWebhook } from '@/lib/notify/webhook'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 // ─────────────────────────────────────────────────
 // V3.2 — Autonomy heartbeat (cron)
@@ -11,6 +15,8 @@ import { startOfToday } from '@/lib/cost/aggregate'
 //      dispatches them) — deterministic, no LLM tokens.
 //   2. Generates daily manager reports (rule-based synthesis, no LLM tokens),
 //      idempotent: skips roles already reported today.
+//   3. Once/day (DIGEST_HOUR, UTC) pushes a daily digest to DIGEST_WEBHOOK_URL
+//      so the OS comes to the owner instead of waiting to be opened.
 //
 // This is what makes the system an OS rather than a dashboard — managers
 // brief and workflows progress while the human is away.
@@ -28,6 +34,51 @@ const FEATURED_ROLES = [
 
 const MAX_USERS_PER_RUN = 25
 const MAX_RUNS_PER_USER = 50
+
+// Build the per-user daily digest counts. Only called when a digest will
+// actually be sent, so the extra queries don't run on every hourly tick.
+async function buildUserDigestInput(
+  supabase: SupabaseClient, userId: string, todayStart: string, dateLabel: string,
+): Promise<DigestInput> {
+  const since24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
+  const [
+    { count: pendingApprovals },
+    { count: blockedWorkflows },
+    { count: failedRuns },
+    { count: interventions },
+    { data: todayRuns },
+    { count: reportsToday },
+    budget,
+  ] = await Promise.all([
+    supabase.from('approval_requests').select('id', { count: 'exact', head: true })
+      .eq('user_id', userId).eq('status', 'pending'),
+    supabase.from('workflow_runs').select('id', { count: 'exact', head: true })
+      .eq('user_id', userId).eq('status', 'blocked_approval'),
+    supabase.from('tool_runs').select('id', { count: 'exact', head: true })
+      .eq('user_id', userId).eq('status', 'error').gte('started_at', since24h),
+    supabase.from('manager_reports').select('id', { count: 'exact', head: true })
+      .eq('user_id', userId).eq('needs_user_intervention', true).gte('generated_at', todayStart),
+    supabase.from('model_runs').select('cost_usd_estimated')
+      .eq('user_id', userId).gte('created_at', todayStart).limit(5000),
+    supabase.from('manager_reports').select('id', { count: 'exact', head: true })
+      .eq('user_id', userId).eq('report_type', 'daily').gte('generated_at', todayStart),
+    getBudgetStatus(supabase, userId),
+  ])
+
+  const todayCost = (todayRuns ?? []).reduce(
+    (s, r) => s + Number((r as { cost_usd_estimated?: number }).cost_usd_estimated ?? 0), 0)
+
+  return {
+    date_label: dateLabel,
+    pending_approvals: pendingApprovals ?? 0,
+    blocked_workflows: blockedWorkflows ?? 0,
+    failed_runs_24h: failedRuns ?? 0,
+    manager_interventions: interventions ?? 0,
+    today_cost_usd: Math.round(todayCost * 1_000_000) / 1_000_000,
+    reports_generated_today: reportsToday ?? 0,
+    budget_critical: budget.guardrails.overall_level === 'critical',
+  }
+}
 
 function authorized(req: Request): boolean {
   const secret = process.env.CRON_SECRET
@@ -57,11 +108,21 @@ async function handle(req: Request): Promise<Response> {
   const userIds = [...new Set((projectRows ?? []).map(r => r.user_id as string).filter(Boolean))]
     .slice(0, MAX_USERS_PER_RUN)
 
+  // Digest send decision — fires once/day at DIGEST_HOUR (UTC), or on demand
+  // with ?force_digest=1 for testing. Only attempts delivery if a webhook is set.
+  const url = new URL(req.url)
+  const forceDigest = url.searchParams.get('force_digest') === '1'
+  const digestHour = Number(process.env.DIGEST_HOUR ?? 8)
+  const webhookUrl = process.env.DIGEST_WEBHOOK_URL
+  const sendDigest = !!webhookUrl && (forceDigest || shouldSendDigestNow(new Date(), digestHour))
+
   const todayStart = startOfToday()
+  const dateLabel = new Date().toISOString().slice(0, 10)
   let workflowsAdvanced = 0
   let stepsAdvanced = 0
   let reportsGenerated = 0
-  const perUser: Array<{ user_id: string; runs: number; steps: number; reports: number }> = []
+  let digestsSent = 0
+  const perUser: Array<{ user_id: string; runs: number; steps: number; reports: number; digest?: string }> = []
 
   for (const userId of userIds) {
     let runsTouched = 0
@@ -104,10 +165,25 @@ async function handle(req: Request): Promise<Response> {
       })
     }
 
+    // 3. Daily digest push (once/day, only when a webhook is configured).
+    let digestStatus: string | undefined
+    if (sendDigest) {
+      try {
+        const input = await buildUserDigestInput(supabase, userId, todayStart, dateLabel)
+        const digest = buildDailyDigest(input)
+        const res = await deliverDigestWebhook(webhookUrl, digest)
+        digestStatus = res.ok ? `sent:${digest.severity}` : `fail:${res.error ?? res.status}`
+        if (res.ok) digestsSent++
+      } catch (e) {
+        digestStatus = `error:${e instanceof Error ? e.message : String(e)}`
+        logger.warn('heartbeat.digest_fail', { user_id: userId, error_message: digestStatus })
+      }
+    }
+
     workflowsAdvanced += runsTouched
     stepsAdvanced += userSteps
     reportsGenerated += userReports
-    perUser.push({ user_id: userId, runs: runsTouched, steps: userSteps, reports: userReports })
+    perUser.push({ user_id: userId, runs: runsTouched, steps: userSteps, reports: userReports, digest: digestStatus })
   }
 
   const summary = {
@@ -116,6 +192,8 @@ async function handle(req: Request): Promise<Response> {
     workflows_advanced: workflowsAdvanced,
     steps_advanced: stepsAdvanced,
     reports_generated: reportsGenerated,
+    digests_sent: digestsSent,
+    digest_attempted: sendDigest,
     duration_ms: Date.now() - startedAt,
     per_user: perUser,
   }
