@@ -169,6 +169,36 @@ async function listRepos(cfg: GitHubConfig) {
 }
 
 // ─────────────────────────────────────────────────
+// Action: createRepo — provision an empty remote repo for a new project.
+// Empty (auto_init:false) so a locally-scaffolded repo can push cleanly.
+// ─────────────────────────────────────────────────
+interface CreateRepoParams { name: string; private?: boolean; description?: string }
+async function createRepo(p: CreateRepoParams, cfg: GitHubConfig) {
+  const name = (p.name ?? '').trim()
+  if (!/^[A-Za-z0-9._-]{1,100}$/.test(name)) {
+    throw new Error('仓库名只能含字母/数字/. _ - ，且 ≤100 字符')
+  }
+  const repo = await gh<{
+    html_url: string; clone_url: string; ssh_url: string; full_name: string; private: boolean
+  }>(cfg.access_token, 'POST', '/user/repos', {
+    name,
+    private: p.private !== false,        // default private
+    description: (p.description ?? '').slice(0, 350),
+    auto_init: false,
+  })
+  const push_command =
+    `git remote add origin ${repo.clone_url} && git branch -M main && git push -u origin main`
+  return {
+    full_name: repo.full_name,
+    html_url: repo.html_url,
+    clone_url: repo.clone_url,
+    ssh_url: repo.ssh_url,
+    private: repo.private,
+    push_command,
+  }
+}
+
+// ─────────────────────────────────────────────────
 // V2.2 — Read-only / lower-risk actions
 // ─────────────────────────────────────────────────
 
@@ -309,6 +339,11 @@ export const githubTool: ToolHandler = {
           description: '列出 token 可访问的最近 20 个仓库（用于验证连接）。',
           params: [],
         },
+        {
+          name: 'createRepo',
+          description: '创建一个空的远程仓库（用于新项目）。返回 clone/push 命令。',
+          params: ['name (仓库名)', 'private (默认 true)', 'description (可选)'],
+        },
       ],
     }
   },
@@ -321,6 +356,7 @@ export const githubTool: ToolHandler = {
       case 'createPullRequest':       return createPullRequest(params as unknown as CreatePRParams, cfg)
       case 'createIssue':             return createIssue(params as unknown as CreateIssueParams, cfg)
       case 'listRepos':               return listRepos(cfg)
+      case 'createRepo':              return createRepo(params as unknown as CreateRepoParams, cfg)
       // V2.2 additions
       case 'readFile':                return readFile(params as unknown as ReadFileParams, cfg)
       case 'listBranches':            return listBranches(params as unknown as ListBranchesParams, cfg)

@@ -6,7 +6,7 @@ import Sidebar from '@/components/layout/Sidebar'
 import { createClient } from '@/lib/supabase/client'
 import {
   Loader2, Check, Plus, Trash2, ChevronDown, ChevronRight, ArrowRight,
-  Sparkles, FolderPlus, Terminal, Copy, FolderDown,
+  Sparkles, FolderPlus, Terminal, Copy, FolderDown, GitBranch,
 } from 'lucide-react'
 import { slugify, buildScaffoldCommand, STACKS, type StackId } from '@/lib/projects/scaffold'
 
@@ -167,6 +167,26 @@ function NewMode({ router, systemPayload }: {
   const [done, setDone] = useState<{ system_id: string; project_id?: string } | null>(null)
   const [copied, setCopied] = useState(false)
 
+  // GitHub one-click repo state
+  const [ghBusy, setGhBusy] = useState(false)
+  const [ghErr, setGhErr] = useState<string | null>(null)
+  const [ghRepo, setGhRepo] = useState<{ html_url: string; push_command: string } | null>(null)
+
+  async function createGithubRepo() {
+    setGhErr(null); setGhBusy(true)
+    try {
+      const r = await fetch('/api/projects/github-repo', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: effectiveDir, description: f.project_goal, project_id: done?.project_id }),
+      })
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok || !data.ok) { setGhErr(data.hint || data.error || '建仓失败'); return }
+      setGhRepo({ html_url: data.html_url, push_command: data.push_command })
+    } catch (e) {
+      setGhErr(e instanceof Error ? e.message : String(e))
+    } finally { setGhBusy(false) }
+  }
+
   // dir name auto-tracks the project name until the user edits it.
   const effectiveDir = dirTouched ? dirName : slugify(name)
   const plan = useMemo(() => buildScaffoldCommand({ dirName: effectiveDir, stack }), [effectiveDir, stack])
@@ -244,8 +264,39 @@ function NewMode({ router, systemPayload }: {
           </div>
         </div>
 
+        {/* One-click GitHub repo */}
+        <div className="glass rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-2" style={{ color: 'var(--text-secondary)' }}>
+            <GitBranch size={13} /><span className="text-xs font-semibold uppercase tracking-wider">GitHub 远程仓库</span>
+          </div>
+          {ghRepo ? (
+            <div className="space-y-2">
+              <p className="text-[11px] text-emerald-400 flex items-center gap-1"><Check size={11} /> 已创建：
+                <a href={ghRepo.html_url} target="_blank" rel="noreferrer" className="underline ml-1">{ghRepo.html_url}</a>
+              </p>
+              <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>本地脚手架跑完后，推上去：</p>
+              <pre className="text-[11px] font-mono p-2 rounded-lg overflow-x-auto whitespace-pre-wrap break-all"
+                style={{ background: 'var(--bg-base)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}>
+                {ghRepo.push_command}
+              </pre>
+            </div>
+          ) : (
+            <>
+              <p className="text-[10px] mb-2" style={{ color: 'var(--text-muted)' }}>
+                用你存的 GitHub token 直接建一个空的私有仓库 <code className="font-mono">{effectiveDir}</code>，省掉手动建仓 + git push 那步。
+              </p>
+              <button onClick={createGithubRepo} disabled={ghBusy}
+                className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg disabled:opacity-50"
+                style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--text-primary)', border: '1px solid var(--border-strong)' }}>
+                {ghBusy ? <><Loader2 size={11} className="animate-spin" /> 建仓中…</> : <><GitBranch size={12} /> 一键建 GitHub 仓库</>}
+              </button>
+              {ghErr && <p className="text-[10px] mt-2" style={{ color: '#f87171' }}>{ghErr}</p>}
+            </>
+          )}
+        </div>
+
         <div className="flex gap-2">
-          <button onClick={() => { setDone(null); setName(''); setF(blank('', 'ceo')) }}
+          <button onClick={() => { setDone(null); setName(''); setF(blank('', 'ceo')); setGhRepo(null); setGhErr(null) }}
             className="text-xs px-4 py-2 rounded-lg" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
             再建一个
           </button>
