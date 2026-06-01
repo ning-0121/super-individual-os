@@ -126,6 +126,69 @@ export default function CommandBar({ onChat, compact }: Props) {
 function ResponseCard({ resp }: { resp: CopilotResponse }) {
   const { intent, payload } = resp
 
+  // V3.4 — bulk import existing projects
+  if (intent.kind === 'bulk_import_projects') {
+    const names = (payload.suggested_names as string[]) ?? intent.suggested_names ?? []
+    const target = (payload.target_route as string) ?? `/projects/bulk-import?seed=${encodeURIComponent(intent.seed)}`
+    return (
+      <>
+        <p className="text-xs font-semibold mb-2 text-violet-400">
+          我识别出 {names.length} 个已有项目，可以一次性搬进来
+        </p>
+        <div className="space-y-1 mb-3 max-h-48 overflow-auto pr-1">
+          {names.map((n, i) => (
+            <div key={i} className="flex items-center gap-2 text-[11px] p-2 rounded-lg"
+              style={{ background: 'var(--bg-base)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}>
+              <span className="font-mono text-[10px] w-5 text-center" style={{ color: 'var(--text-muted)' }}>{i + 1}</span>
+              <span>{n}</span>
+            </div>
+          ))}
+        </div>
+        <Link href={target}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-lg"
+          style={{ background: 'linear-gradient(90deg, #f472b6, #a78bfa)', color: '#fff' }}>
+          打开导入页（预览 + 编辑后一键创建） →
+        </Link>
+        <p className="text-[10px] mt-2" style={{ color: 'var(--text-muted)' }}>
+          会建一个「我的项目集」System，每个项目自动配 5 个 AI 经理。可在下一步改名/删项再确认。
+        </p>
+      </>
+    )
+  }
+
+  // V3.4 — chat fallback that always shows SOMETHING, never silent.
+  if (intent.kind === 'chat') {
+    const suggest = (payload.suggest_bulk_import as boolean) ?? false
+    const target = (payload.bulk_import_route as string) ?? '/projects/bulk-import'
+    return (
+      <>
+        <p className="text-xs font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+          没识别到对应命令
+        </p>
+        {suggest ? (
+          <div className="rounded-lg p-3 mb-2"
+            style={{ background: 'rgba(167,139,250,0.06)', border: '1px solid rgba(167,139,250,0.3)' }}>
+            <p className="text-[11px] mb-2" style={{ color: 'var(--text-secondary)' }}>
+              这条像是在描述「已经有的几个项目」。是想把它们一次性导入这个系统吗？
+            </p>
+            <Link href={`${target}?seed=${encodeURIComponent(intent.query)}`}
+              className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-lg"
+              style={{ background: 'linear-gradient(90deg, #f472b6, #a78bfa)', color: '#fff' }}>
+              是的，打开批量导入 →
+            </Link>
+          </div>
+        ) : (
+          <p className="text-[11px] mb-2" style={{ color: 'var(--text-secondary)' }}>
+            试试这些：「今天做什么」「看下待审批」「让所有经理汇报」「批量导入项目」。
+          </p>
+        )}
+        <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+          /help 看完整命令列表 · 直接对话请去 <Link href="/chat" className="text-[var(--accent-light)]">AI Co-founder</Link>
+        </p>
+      </>
+    )
+  }
+
   if (intent.kind === 'help') {
     return (
       <div>
@@ -140,6 +203,7 @@ function ResponseCard({ resp }: { resp: CopilotResponse }) {
           <li>· "今天谁有问题" / "哪个项目卡住了" → 阻塞总览</li>
           <li>· "批准所有低风险事项" / "拒绝所有高风险" → 批量治理</li>
           <li>· "想做一个 X" → 跳到 ✨ 新 Venture (带预填)</li>
+          <li>· "1、A 2、B 3、C" / "我已经做了几个项目" → 批量导入已有项目</li>
           <li>· 其他自然语言 → AI 联合创始人对话</li>
         </ul>
       </div>

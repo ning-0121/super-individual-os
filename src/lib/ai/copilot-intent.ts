@@ -3,6 +3,7 @@
 // Maps a single natural-language line to a typed action.
 // Rule-based first; everything that doesn't match falls through to `chat`.
 // ─────────────────────────────────────────────────
+import { parseProjectList } from '@/lib/projects/bulk-parser'
 
 export type CopilotIntent =
   | { kind: 'list_systems' }
@@ -25,8 +26,10 @@ export type CopilotIntent =
   | { kind: 'cost_summary';
       window?: 'today' | 'week' | 'month'
       aspect?: 'most_expensive' | 'fallback' | 'by_stage' | 'general' }
+  // V3.4 — bulk import already-running projects
+  | { kind: 'bulk_import_projects'; seed: string; preview_count: number; suggested_names: string[] }
   | { kind: 'help' }
-  | { kind: 'chat'; query: string }
+  | { kind: 'chat'; query: string; suggest_bulk_import?: boolean }
 
 interface Rule {
   // First match wins. Patterns can be:
@@ -64,6 +67,43 @@ const RULES: Rule[] = [
   {
     any: ['second brain', '设置', '/settings'],
     build: () => ({ kind: 'nav', route: '/settings', label: 'Second Brain' }),
+  },
+
+  // V3.4 — Bulk import existing projects. MUST come before start_venture so
+  // past-tense / portfolio phrasing ("做了几个项目", "我已经有...") doesn't
+  // accidentally trigger venture creation.
+  {
+    pattern: /(?:已经做了|做了几个|做了\s*\d+\s*个|做过\s*\d+\s*个|做过几个|我已经有|我有几个|已有几个|已有项目|这些项目|批量导入|导入已有|导入项目|搬进来|搬过来|搬到这|搬到这里|搬过来管理|import\s+projects|already (?:have|built|made))/i,
+    build: (input) => {
+      const parsed = parseProjectList(input)
+      // Only fire if we actually found a list. Otherwise fall through.
+      if (parsed.items.length >= 1) {
+        return {
+          kind: 'bulk_import_projects',
+          seed: input.trim(),
+          preview_count: parsed.items.length,
+          suggested_names: parsed.items,
+        }
+      }
+      return { kind: 'chat', query: input, suggest_bulk_import: true }
+    },
+  },
+  // Even without a trigger phrase, a numbered list of 3+ items is almost
+  // certainly a portfolio dump worth routing to bulk-import.
+  {
+    pattern: /\d+[、.．)）]/,
+    build: (input) => {
+      const parsed = parseProjectList(input)
+      if (parsed.items.length >= 3) {
+        return {
+          kind: 'bulk_import_projects',
+          seed: input.trim(),
+          preview_count: parsed.items.length,
+          suggested_names: parsed.items,
+        }
+      }
+      return { kind: 'chat', query: input }
+    },
   },
 
   // Start a venture — must come BEFORE list_projects so phrases like
@@ -273,7 +313,13 @@ export function classifyIntent(rawInput: string): CopilotIntent {
     }
   }
 
-  return { kind: 'chat', query: input }
+  // Chat fallback — but if the input *smells* like a portfolio dump
+  // (mentions multiple "项目/系统/产品" or talks about an existing setup),
+  // hint that bulk-import might be what they wanted.
+  const looksLikeProjects =
+    /(项目|系统|产品).{0,40}(项目|系统|产品)/i.test(input) ||
+    /(已经|目前|现在).{0,15}(用|有|做)/i.test(input)
+  return { kind: 'chat', query: input, suggest_bulk_import: looksLikeProjects }
 }
 
 // Quick-action menu shown on the empty Copilot panel
@@ -287,5 +333,6 @@ export const QUICK_ACTIONS: Array<{ label: string; sample: string; icon: string 
   { label: '让所有经理汇报',   sample: '所有经理报告',     icon: '🤖' },
   { label: '看增长实验',       sample: '看下增长实验',     icon: '📈' },
   { label: '启动新创业',       sample: '我想做一个新项目', icon: '✨' },
+  { label: '导入已有项目',     sample: '1、节拍器 2、财务系统 3、客户开发系统', icon: '📥' },
   { label: '本地 agent 状态',  sample: '本地 agent 在线吗', icon: '💻' },
 ]

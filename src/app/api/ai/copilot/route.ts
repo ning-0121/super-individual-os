@@ -241,10 +241,25 @@ async function loadPayload(
         },
       }
     }
+    case 'bulk_import_projects': {
+      // The classifier already parsed the list; the route just relays it so
+      // the UI can show a preview + one-click CTA to /projects/bulk-import.
+      return {
+        seed: intent.seed,
+        preview_count: intent.preview_count,
+        suggested_names: intent.suggested_names,
+        target_route: `/projects/bulk-import?seed=${encodeURIComponent(intent.seed)}`,
+      }
+    }
     case 'help':
     case 'nav':
     case 'start_venture':
-    case 'chat':
       return {}
+    case 'chat':
+      return {
+        query: intent.query,
+        suggest_bulk_import: !!intent.suggest_bulk_import,
+        bulk_import_route: '/projects/bulk-import',
+      }
   }
 }
