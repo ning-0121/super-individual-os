@@ -28,6 +28,8 @@ export default function ProjectsPage() {
   const [creating, setCreating]     = useState(false)
   const [newName, setNewName]       = useState('')
   const [decisions, setDecisions]   = useState<Record<string, Decision>>({})
+  const [createErr, setCreateErr]   = useState<string | null>(null)
+  const [saving, setSaving]         = useState(false)
 
   useEffect(() => {
     getProjects().then(setProjects).finally(() => setLoading(false))
@@ -35,10 +37,17 @@ export default function ProjectsPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
-    if (!newName.trim()) return
-    const p = await createProject({ name: newName.trim(), status: 'active' })
-    setProjects(prev => [p, ...prev])
-    setNewName(''); setCreating(false)
+    if (!newName.trim() || saving) return
+    setCreateErr(null); setSaving(true)
+    try {
+      const p = await createProject({ name: newName.trim(), status: 'active' })
+      setProjects(prev => [p, ...prev])
+      setNewName(''); setCreating(false)
+    } catch (err) {
+      setCreateErr(err instanceof Error ? err.message : '创建失败，请重试')
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function handleStatus(id: string, status: ProjectStatus) {
@@ -81,13 +90,21 @@ export default function ProjectsPage() {
 
         <div className="p-8">
           {creating && (
-            <form onSubmit={handleCreate} className="glass rounded-xl p-4 flex gap-3 mb-6">
-              <input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
-                placeholder="项目名称..."
-                className="flex-1 rounded-lg px-3 py-2 text-sm focus:outline-none"
-                style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} />
-              <button type="submit" className="px-4 py-2 rounded-lg text-sm text-white" style={{ background: 'var(--accent)' }}>创建</button>
-              <button type="button" onClick={() => setCreating(false)} className="px-4 py-2 text-sm" style={{ color: 'var(--text-muted)' }}>取消</button>
+            <form onSubmit={handleCreate} className="glass rounded-xl p-4 mb-6">
+              <div className="flex gap-3">
+                <input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
+                  placeholder="项目名称..."
+                  className="flex-1 rounded-lg px-3 py-2 text-sm focus:outline-none"
+                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} />
+                <button type="submit" disabled={saving}
+                  className="px-4 py-2 rounded-lg text-sm text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>
+                  {saving ? '创建中…' : '创建'}
+                </button>
+                <button type="button" onClick={() => { setCreating(false); setCreateErr(null) }} className="px-4 py-2 text-sm" style={{ color: 'var(--text-muted)' }}>取消</button>
+              </div>
+              {createErr && (
+                <p className="text-[11px] mt-2" style={{ color: '#f87171' }}>{createErr}</p>
+              )}
             </form>
           )}
 

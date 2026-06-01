@@ -14,9 +14,13 @@ export async function getAgents(): Promise<ExecutionUnit[]> {
 }
 
 export async function createAgent(input: Partial<ExecutionUnit>): Promise<ExecutionUnit> {
-  const { data, error } = await db()
+  const supabase = db()
+  // RLS requires user_id = auth.uid(); stamp it so the insert isn't rejected.
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('未登录，请重新登录后再创建')
+  const { data, error } = await supabase
     .from('execution_units')
-    .insert(input)
+    .insert({ ...input, user_id: user.id })
     .select()
     .single()
   if (error) throw error

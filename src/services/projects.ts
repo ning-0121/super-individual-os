@@ -13,9 +13,16 @@ export async function getProjects(): Promise<Project[]> {
 }
 
 export async function createProject(input: Partial<Project>): Promise<Project> {
-  const { data, error } = await db()
+  const supabase = db()
+  // RLS on `projects` is `auth.uid() = user_id`, so the insert MUST carry
+  // user_id or Postgres rejects it (WITH CHECK fails) and the create silently
+  // fails. Stamp it from the current session.
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('未登录，请重新登录后再创建项目')
+
+  const { data, error } = await supabase
     .from('projects')
-    .insert(input)
+    .insert({ ...input, user_id: user.id })
     .select()
     .single()
   if (error) throw error

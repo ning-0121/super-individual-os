@@ -12,9 +12,13 @@ export async function getTasks(projectId?: string): Promise<Task[]> {
 }
 
 export async function createTask(input: Partial<Task>): Promise<Task> {
-  const { data, error } = await db()
+  const supabase = db()
+  // RLS requires user_id = auth.uid(); stamp it so the insert isn't rejected.
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('未登录，请重新登录后再创建任务')
+  const { data, error } = await supabase
     .from('tasks')
-    .insert(input)
+    .insert({ ...input, user_id: user.id })
     .select()
     .single()
   if (error) throw error
