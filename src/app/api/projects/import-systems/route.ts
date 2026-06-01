@@ -37,6 +37,7 @@ interface ImportProject {
   owner_manager?: string
 }
 interface Body {
+  system_id?: string          // attach to existing System (skip create) — used by single 新建
   system_name?: string
   business_goal?: string
   projects?: ImportProject[]
@@ -60,23 +61,37 @@ export async function POST(req: Request) {
 
   const systemName = (body.system_name ?? '我的项目集').trim().slice(0, 60) || '我的项目集'
 
-  // 1. Umbrella System
-  const { data: system, error: sysErr } = await supabase.from('systems').insert({
-    user_id: userId,
-    name: systemName,
-    description: body.business_goal?.trim() ?? '导入的现有项目集',
-    status: 'active',
-    metadata: {
-      type: 'portfolio', business_goal: body.business_goal ?? '统一管理已有项目',
-      owner_manager: 'ceo', created_via: 'import_systems', imported_count: projects.length,
-    },
-  }).select().single()
-  if (sysErr || !system) return apiError(sysErr?.message ?? 'system insert failed', { status: 400 })
+  // 1. Resolve the umbrella System — attach to an existing one when system_id
+  //    is given (single 新建 flow), otherwise create a fresh portfolio System.
+  let system: { id: string } | null = null
+  let createdSystem = false
+  if (body.system_id) {
+    const { data: existing } = await supabase.from('systems')
+      .select('id').eq('id', body.system_id).eq('user_id', userId).maybeSingle()
+    if (!existing) return apiError('system_id not found', { status: 404 })
+    system = { id: existing.id as string }
+  } else {
+    const { data: created, error: sysErr } = await supabase.from('systems').insert({
+      user_id: userId,
+      name: systemName,
+      description: body.business_goal?.trim() ?? '导入的现有项目集',
+      status: 'active',
+      metadata: {
+        type: 'portfolio', business_goal: body.business_goal ?? '统一管理已有项目',
+        owner_manager: 'ceo', created_via: 'import_systems', imported_count: projects.length,
+      },
+    }).select('id').single()
+    if (sysErr || !created) return apiError(sysErr?.message ?? 'system insert failed', { status: 400 })
+    system = { id: created.id as string }
+    createdSystem = true
+    await audit(supabase, userId, 'system.created', {
+      resource_type: 'system', resource_id: system.id,
+      metadata: { source: 'import_systems', count: projects.length },
+    })
+  }
 
-  await audit(supabase, userId, 'system.created', {
-    resource_type: 'system', resource_id: system.id as string,
-    metadata: { source: 'import_systems', count: projects.length },
-  })
+  if (!system) return apiError('system resolution failed', { status: 500 })
+  const systemId = system.id
 
   const now = new Date().toISOString()
   const results: Array<{
@@ -108,7 +123,7 @@ export async function POST(req: Request) {
 
       // 2b. Link to umbrella system
       await supabase.from('system_projects').insert({
-        user_id: userId, system_id: system.id, project_id: projectId,
+        user_id: userId, system_id: systemId, project_id: projectId,
         role: results.length === 0 ? 'primary' : 'member',
       })
 
@@ -142,7 +157,7 @@ export async function POST(req: Request) {
       let report = false
       try {
         const rep = await generateManagerReport(supabase, userId, {
-          role: ownerRole, report_type: 'daily', project_id: projectId, system_id: system.id as string,
+          role: ownerRole, report_type: 'daily', project_id: projectId, system_id: systemId,
         })
         report = !!rep
       } catch { /* best-effort */ }
@@ -155,14 +170,14 @@ export async function POST(req: Request) {
 
   const succeeded = results.filter(r => r.ok).length
   if (succeeded === 0) {
-    // Nothing landed — roll back the empty umbrella.
-    await supabase.from('systems').delete().eq('id', system.id)
+    // Nothing landed — roll back the umbrella, but ONLY if we created it.
+    if (createdSystem) await supabase.from('systems').delete().eq('id', systemId)
     return apiError('All project imports failed', { status: 400 })
   }
 
   return Response.json({
     ok: true,
-    system_id: system.id,
+    system_id: systemId,
     system_name: systemName,
     imported: succeeded,
     total: projects.length,

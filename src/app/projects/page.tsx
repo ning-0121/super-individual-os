@@ -1,8 +1,9 @@
 'use client'
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import Sidebar from '@/components/layout/Sidebar'
 import { Project, ProjectStatus } from '@/types'
-import { getProjects, createProject, updateProject, deleteProject } from '@/services/projects'
+import { getProjects, updateProject, deleteProject } from '@/services/projects'
 import { Plus, Trash2, ChevronRight } from 'lucide-react'
 
 const DECISION_OPTIONS = ['Continue', 'Pivot', 'Freeze', 'Stop'] as const
@@ -25,30 +26,11 @@ const DECISION_META: Record<Decision, string> = {
 export default function ProjectsPage() {
   const [projects, setProjects]     = useState<Project[]>([])
   const [loading, setLoading]       = useState(true)
-  const [creating, setCreating]     = useState(false)
-  const [newName, setNewName]       = useState('')
   const [decisions, setDecisions]   = useState<Record<string, Decision>>({})
-  const [createErr, setCreateErr]   = useState<string | null>(null)
-  const [saving, setSaving]         = useState(false)
 
   useEffect(() => {
     getProjects().then(setProjects).finally(() => setLoading(false))
   }, [])
-
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault()
-    if (!newName.trim() || saving) return
-    setCreateErr(null); setSaving(true)
-    try {
-      const p = await createProject({ name: newName.trim(), status: 'active' })
-      setProjects(prev => [p, ...prev])
-      setNewName(''); setCreating(false)
-    } catch (err) {
-      setCreateErr(err instanceof Error ? err.message : '创建失败，请重试')
-    } finally {
-      setSaving(false)
-    }
-  }
 
   async function handleStatus(id: string, status: ProjectStatus) {
     await updateProject(id, { status })
@@ -81,41 +63,22 @@ export default function ProjectsPage() {
             <p className="text-xs font-mono text-[var(--accent-light)] tracking-widest uppercase mb-0.5">Portfolio View</p>
             <h1 className="text-lg font-semibold text-[var(--text-primary)]">项目组合</h1>
           </div>
-          <button onClick={() => setCreating(true)}
+          <Link href="/projects/new"
             className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg transition-colors"
             style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--accent-light)', border: '1px solid var(--border-strong)' }}>
-            <Plus size={12} /> 新建项目
-          </button>
+            <Plus size={12} /> 新建 / 导入项目
+          </Link>
         </div>
 
         <div className="p-8">
-          {creating && (
-            <form onSubmit={handleCreate} className="glass rounded-xl p-4 mb-6">
-              <div className="flex gap-3">
-                <input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
-                  placeholder="项目名称..."
-                  className="flex-1 rounded-lg px-3 py-2 text-sm focus:outline-none"
-                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} />
-                <button type="submit" disabled={saving}
-                  className="px-4 py-2 rounded-lg text-sm text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>
-                  {saving ? '创建中…' : '创建'}
-                </button>
-                <button type="button" onClick={() => { setCreating(false); setCreateErr(null) }} className="px-4 py-2 text-sm" style={{ color: 'var(--text-muted)' }}>取消</button>
-              </div>
-              {createErr && (
-                <p className="text-[11px] mt-2" style={{ color: '#f87171' }}>{createErr}</p>
-              )}
-            </form>
-          )}
-
           {loading && <p className="text-center py-20 text-[var(--text-muted)] text-sm">加载中...</p>}
 
           {!loading && projects.length === 0 && (
             <div className="text-center py-20">
               <p className="text-[var(--text-muted)] text-sm mb-4">暂无项目</p>
-              <button onClick={() => setCreating(true)} className="text-[var(--accent-light)] text-sm hover:text-white transition-colors">
-                创建第一个项目 →
-              </button>
+              <Link href="/projects/new" className="text-[var(--accent-light)] text-sm hover:text-white transition-colors">
+                新建 / 导入第一个项目 →
+              </Link>
             </div>
           )}
 

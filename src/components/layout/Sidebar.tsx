@@ -27,7 +27,7 @@ const GROUPS: Array<{ group: string; items: Item[] }> = [
     group: 'Execution',
     items: [
       { href: '/projects',        label: 'Projects',        icon: FolderOpen },
-      { href: '/projects/import-systems', label: '导入已有项目', icon: FolderOpen },
+      { href: '/projects/new',    label: '新建 / 导入项目',  icon: FolderOpen },
       { href: '/tasks',           label: 'Tasks',           icon: CheckSquare },
       { href: '/command-center',  label: 'Command Center',  icon: Layers },
       { href: '/reviews',         label: 'Reviews',         icon: ClipboardCheck },
