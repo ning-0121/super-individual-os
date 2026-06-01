@@ -5,6 +5,7 @@ import { extractAndSaveArtifacts } from '@/lib/ai/artifact-extractor'
 import { logger } from '@/lib/observability'
 import { audit } from '@/lib/audit'
 import { reportError } from '@/lib/error-reporter'
+import { assertBudgetAllowed } from '@/services/cost-budget'
 import type { ExecutionUnit, Task, TaskType } from '@/types'
 
 const QA_TRIGGER_TYPES: TaskType[] = ['engineering', 'feature', 'content', 'design', 'research', 'analysis']
@@ -19,6 +20,7 @@ export type RunGuardError =
   | { kind: 'concurrent_run'; existing_run_id: string; status: string }
   | { kind: 'dependencies_unmet'; blocked_by: Array<{ id: string; title: string; status: string }> }
   | { kind: 'retry_limit_reached'; retry_count: number; max_retries: number }
+  | { kind: 'budget_exceeded'; reason: string; month_usd: number; today_usd: number }
 
 export type RunOutcome =
   | { ok: true; task_run_id: string; qa_triggered: boolean; qa_verdict: string | null; artifact_count: number; total_steps: number }
@@ -115,6 +117,37 @@ export async function executeTaskRun(params: {
   // Retry-limit check
   if (retryCount >= DEFAULT_MAX_RETRIES) {
     return { ok: false, error: { kind: 'retry_limit_reached', retry_count: retryCount, max_retries: DEFAULT_MAX_RETRIES } }
+  }
+
+  // ── Cost hard-cap gate ──────────────────────────────────────────────
+  // This is the real token spender (multi-step LLM + tool loop). Block BEFORE
+  // creating any task_run so a rejected run leaves zero dirty state. Plain
+  // chat (/api/ai/strategy) does not pass through here and is unaffected.
+  const budget = await assertBudgetAllowed(supabase, userId)
+  if (budget.blocked) {
+    await audit(supabase, userId, 'task_run.failed', {
+      resource_type: 'task', resource_id: taskId,
+      metadata: {
+        rejected: 'budget_exceeded',
+        reason: budget.reason ?? 'cost hard cap',
+        month_usd: budget.status.month_usd,
+        today_usd: budget.status.today_usd,
+        agent_id: a.id,
+      },
+    })
+    logger.warn('run.blocked_budget', {
+      user_id: userId, task_id: taskId,
+      month_usd: budget.status.month_usd, today_usd: budget.status.today_usd,
+    })
+    return {
+      ok: false,
+      error: {
+        kind: 'budget_exceeded',
+        reason: budget.reason ?? '成本已触顶，本次执行被硬上限拦截',
+        month_usd: budget.status.month_usd,
+        today_usd: budget.status.today_usd,
+      },
+    }
   }
 
   // Create task_run

@@ -120,6 +120,11 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
         error: `已达最大重试次数（${e.max_retries}）`,
         retry_count: e.retry_count,
       }, { status: 429 })
+      case 'budget_exceeded':      return Response.json({
+        error: e.reason,
+        month_usd: e.month_usd,
+        today_usd: e.today_usd,
+      }, { status: 402 })
     }
   }
 
