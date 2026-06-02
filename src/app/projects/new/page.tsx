@@ -364,7 +364,7 @@ function NewMode({ router, systemPayload }: {
         </div>
       </div>
 
-      {error && <div className="rounded-xl p-3 text-[11px]" style={{ background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.3)', color: '#f87171' }}>{error}</div>}
+      {error && <div className="rounded-xl p-3 text-[11px] whitespace-pre-line font-mono" style={{ background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.3)', color: '#f87171' }}>{error}</div>}
 
       <div className="flex items-center gap-3">
         <button onClick={submit} disabled={submitting}
@@ -390,7 +390,7 @@ function ImportMode({ router, systemPayload }: {
   const [open, setOpen] = useState<Set<number>>(new Set([0]))
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<{ system_id: string; imported: number; total: number } | null>(null)
+  const [result, setResult] = useState<{ system_id: string; imported: number; total: number; warnings?: string[] } | null>(null)
 
   const patch = (i: number, p: Partial<ProjForm>) => setForms(fs => fs.map((f, idx) => idx === i ? { ...f, ...p } : f))
   const toggle = (i: number) => setOpen(s => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n })
@@ -415,10 +415,23 @@ function ImportMode({ router, systemPayload }: {
           })),
         }),
       })
-      if (!r.ok) { setError((await r.text().catch(() => '')) || `导入失败 (${r.status})`); return }
-      const data = await r.json()
-      setResult({ system_id: data.system_id, imported: data.imported, total: data.total })
-      setTimeout(() => router.push(`/systems/${data.system_id}`), 1600)
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok || !data.ok) {
+        // Surface the per-project reasons instead of a raw JSON dump.
+        const reasons: string[] = Array.isArray(data.results)
+          ? data.results.filter((x: { ok: boolean }) => !x.ok)
+              .map((x: { name: string; error?: string }) => `${x.name}: ${x.error ?? '未知错误'}`)
+          : []
+        setError(reasons.length ? `导入失败：\n${reasons.join('\n')}` : (data.error || `导入失败 (${r.status})`))
+        return
+      }
+      // Collect any best-effort warnings (e.g. context lock skipped) to show.
+      const warns: string[] = Array.isArray(data.results)
+        ? data.results.flatMap((x: { name: string; warnings?: string[] }) =>
+            (x.warnings ?? []).map(w => `${x.name}: ${w}`))
+        : []
+      setResult({ system_id: data.system_id, imported: data.imported, total: data.total, warnings: warns })
+      setTimeout(() => router.push(`/systems/${data.system_id}`), warns.length ? 4000 : 1600)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally { setSubmitting(false) }
@@ -428,7 +441,14 @@ function ImportMode({ router, systemPayload }: {
     return (
       <div className="rounded-xl p-6" style={{ background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.3)' }}>
         <div className="flex items-center gap-2 mb-2 text-emerald-400"><Check size={16} /><span className="text-sm font-semibold">导入完成</span></div>
-        <p className="text-sm" style={{ color: 'var(--text-primary)' }}>成功导入 {result.imported}/{result.total} 个项目，已锁定 context + 出首份经理报告。</p>
+        <p className="text-sm" style={{ color: 'var(--text-primary)' }}>成功导入 {result.imported}/{result.total} 个项目。</p>
+        {result.warnings && result.warnings.length > 0 && (
+          <div className="mt-2 rounded-lg p-2 text-[10px]"
+            style={{ background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24' }}>
+            <p className="font-semibold mb-1">项目已建好，但部分增强步骤被跳过（多半是缺 v2.5 迁移）：</p>
+            {result.warnings.slice(0, 8).map((w, i) => <div key={i} className="font-mono">· {w}</div>)}
+          </div>
+        )}
         <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>正在跳转… 或 <Link href={`/systems/${result.system_id}`} className="text-violet-400">立即前往 →</Link></p>
       </div>
     )
@@ -476,7 +496,7 @@ function ImportMode({ router, systemPayload }: {
         <Plus size={12} /> 再加一个项目
       </button>
 
-      {error && <div className="rounded-xl p-3 text-[11px]" style={{ background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.3)', color: '#f87171' }}>{error}</div>}
+      {error && <div className="rounded-xl p-3 text-[11px] whitespace-pre-line font-mono" style={{ background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.3)', color: '#f87171' }}>{error}</div>}
 
       <div className="flex items-center gap-3 pt-1">
         <button onClick={submit} disabled={submitting}
