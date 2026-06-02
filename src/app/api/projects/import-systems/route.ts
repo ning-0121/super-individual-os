@@ -6,6 +6,7 @@ import {
   getOrCreateContext, updateContext, setContextLock, appendActivity, generateHandoff,
 } from '@/services/project-context'
 import { generateManagerReport } from '@/services/manager-reports'
+import { ensureExecutorAgents } from '@/services/ensure-agents'
 
 // ─────────────────────────────────────────────────
 // V3.5 — Import Existing Systems (rich, context-locked)
@@ -92,6 +93,12 @@ export async function POST(req: Request) {
 
   if (!system) return apiError('system resolution failed', { status: 500 })
   const systemId = system.id
+
+  // Ensure the user has executor agents (so imported projects' tasks can run).
+  // Best-effort — never blocks the import.
+  let executorsReady = false
+  try { executorsReady = (await ensureExecutorAgents(supabase, userId)).agents.length > 0 }
+  catch { /* best-effort */ }
 
   const now = new Date().toISOString()
   const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -219,6 +226,7 @@ export async function POST(req: Request) {
     system_name: systemName,
     imported: succeeded,
     total: projects.length,
+    executors_ready: executorsReady,
     results,
   })
 }

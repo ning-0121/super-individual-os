@@ -4,7 +4,7 @@ import Link from 'next/link'
 import Sidebar from '@/components/layout/Sidebar'
 import { Project, ProjectStatus } from '@/types'
 import { getProjects, updateProject, deleteProject } from '@/services/projects'
-import { Plus, Trash2, ChevronRight } from 'lucide-react'
+import { Plus, Trash2, ChevronRight, Bot, Loader2, Check } from 'lucide-react'
 
 const DECISION_OPTIONS = ['Continue', 'Pivot', 'Freeze', 'Stop'] as const
 type Decision = typeof DECISION_OPTIONS[number]
@@ -27,10 +27,23 @@ export default function ProjectsPage() {
   const [projects, setProjects]     = useState<Project[]>([])
   const [loading, setLoading]       = useState(true)
   const [decisions, setDecisions]   = useState<Record<string, Decision>>({})
+  // Executor-agent provisioning state
+  const [execState, setExecState] = useState<'checking' | 'missing' | 'ready' | 'provisioning'>('checking')
 
   useEffect(() => {
     getProjects().then(setProjects).finally(() => setLoading(false))
+    fetch('/api/projects/ensure-agents').then(r => r.ok ? r.json() : null)
+      .then(d => setExecState(d?.has_executor ? 'ready' : 'missing'))
+      .catch(() => setExecState('ready')) // fail quiet — don't nag on error
   }, [])
+
+  async function provisionAgents() {
+    setExecState('provisioning')
+    try {
+      const r = await fetch('/api/projects/ensure-agents', { method: 'POST' })
+      setExecState(r.ok ? 'ready' : 'missing')
+    } catch { setExecState('missing') }
+  }
 
   async function handleStatus(id: string, status: ProjectStatus) {
     await updateProject(id, { status })
@@ -71,6 +84,39 @@ export default function ProjectsPage() {
         </div>
 
         <div className="p-8">
+          {/* Executor-agent setup — projects can't run tasks without one */}
+          {execState === 'missing' && (
+            <div className="rounded-xl p-4 mb-6 flex items-center gap-3"
+              style={{ background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.3)' }}>
+              <Bot size={18} className="text-violet-400 shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>还没有执行 Agent</p>
+                <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                  项目要能跑任务（调 Claude、开 GitHub PR）需要执行 Agent。一键配置一套（含带 GitHub 权限的 Engineering Agent）。
+                </p>
+              </div>
+              <button onClick={provisionAgents}
+                className="text-xs font-semibold px-4 py-2 rounded-lg shrink-0"
+                style={{ background: 'linear-gradient(90deg, #f472b6, #a78bfa)', color: '#fff' }}>
+                一键配置执行 Agent
+              </button>
+            </div>
+          )}
+          {execState === 'provisioning' && (
+            <div className="rounded-xl p-4 mb-6 flex items-center gap-2"
+              style={{ background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.3)' }}>
+              <Loader2 size={14} className="animate-spin text-violet-400" />
+              <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>正在配置执行 Agent…</span>
+            </div>
+          )}
+          {execState === 'ready' && projects.length > 0 && (
+            <div className="rounded-xl px-4 py-2 mb-6 flex items-center gap-2"
+              style={{ background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.25)' }}>
+              <Check size={13} className="text-emerald-400" />
+              <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>执行 Agent 已就绪 — 可在任意项目里建任务并运行。</span>
+            </div>
+          )}
+
           {loading && <p className="text-center py-20 text-[var(--text-muted)] text-sm">加载中...</p>}
 
           {!loading && projects.length === 0 && (
