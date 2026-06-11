@@ -145,7 +145,7 @@ export const supabaseTool: ToolHandler = {
       const res = await fetch(`${cfg.project_url}/rest/v1/`, {
         headers: { 'apikey': cfg.service_role_key, 'Authorization': `Bearer ${cfg.service_role_key}` },
       })
-      if (!res.ok) return { ok: false, message: `Supabase ${res.status}: ${(await res.text()).slice(0, 120)}` }
+      if (!res.ok) return { ok: false, message: `Supabase 连接失败：${res.status}` }
       return { ok: true, message: '✓ Supabase 连接成功' }
     } catch (e) {
       return { ok: false, message: e instanceof Error ? e.message : '验证失败' }

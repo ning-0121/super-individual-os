@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { runAgentLoop, runQAEvaluation, type ProjectContext, type AgentEvaluation } from '@/lib/ai/gateway'
+import { runAgentLoop, runQAEvaluation, type ProjectContext, type AgentEvaluation, type PendingApproval } from '@/lib/ai/gateway'
 import { getUserConnectedTools } from '@/lib/tools/router'
 import { extractAndSaveArtifacts } from '@/lib/ai/artifact-extractor'
 import { logger } from '@/lib/observability'
@@ -26,6 +26,7 @@ export type RunOutcome =
   | { ok: true; task_run_id: string; qa_triggered: boolean; qa_verdict: string | null; artifact_count: number; total_steps: number }
   | { ok: false; error: RunGuardError }
   | { ok: false; runtime_error: string; task_run_id: string }
+  | { ok: false; blocked_approval: true; task_run_id: string; pending_approvals: PendingApproval[] }
 
 // ─────────────────────────────────────────────────
 // Pre-flight gates
@@ -198,6 +199,7 @@ export async function executeTaskRun(params: {
     primaryResult = await runAgentLoop({
       agent: a, task: t, projectContext,
       userId, supabase, availableTools,
+      taskRunId: taskRun.id, projectId: t.project_id ?? null,
     })
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e)
@@ -231,6 +233,36 @@ export async function executeTaskRun(params: {
 
     await supabase.from('tasks').update({ workflow_status: 'blocked' }).eq('id', taskId)
     return { ok: false, runtime_error: errMsg, task_run_id: taskRun.id }
+  }
+
+  // V3.8 — Approval gate: a tool call was high-risk and paused the loop.
+  // Mark the run blocked_approval (NOT completed/failed) and surface it.
+  if (primaryResult.pending_approval) {
+    await supabase.from('task_runs').update({
+      run_status: 'blocked_approval',
+      finished_at: new Date().toISOString(),
+      output_payload: {
+        summary: primaryResult.summary,
+        pending_approvals: primaryResult.pending_approvals ?? [],
+      },
+    }).eq('id', taskRun.id)
+    await supabase.from('tasks').update({ workflow_status: 'blocked_approval' }).eq('id', taskId)
+    await audit(supabase, userId, 'dispatch.blocked', {
+      resource_type: 'task_run', resource_id: taskRun.id,
+      metadata: {
+        task_id: taskId,
+        pending_approvals: primaryResult.pending_approvals ?? [],
+        reason: 'tool_requires_approval',
+      },
+    })
+    logger.info('run.blocked_approval', {
+      user_id: userId, task_id: taskId, task_run_id: taskRun.id,
+      pending: (primaryResult.pending_approvals ?? []).length,
+    })
+    return {
+      ok: false, blocked_approval: true, task_run_id: taskRun.id,
+      pending_approvals: primaryResult.pending_approvals ?? [],
+    }
   }
 
   // Re-check status (handles cancel race)

@@ -18,8 +18,8 @@ async function vc<T>(cfg: VercelConfig, path: string): Promise<T> {
     },
   })
   if (!res.ok) {
-    const body = await res.text()
-    throw new Error(`Vercel ${path} → ${res.status}: ${body.slice(0, 300)}`)
+    // P1-3 — status only, never the upstream body.
+    throw new Error(`Vercel ${path} → ${res.status} (request failed)`)
   }
   return res.json() as Promise<T>
 }
@@ -36,8 +36,8 @@ async function vcPost<T>(cfg: VercelConfig, path: string, body: unknown): Promis
     body: JSON.stringify(body),
   })
   if (!res.ok) {
-    const txt = await res.text()
-    throw new Error(`Vercel POST ${path} → ${res.status}: ${txt.slice(0, 300)}`)
+    // P1-3 — status only, never the upstream body.
+    throw new Error(`Vercel POST ${path} → ${res.status} (request failed)`)
   }
   return res.json() as Promise<T>
 }

@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { apiError, apiOk } from '@/lib/observability'
 import { reportError } from '@/lib/error-reporter'
 import { buildAvatarSystemPrompt, parseLLMAvatarOutput, suggestFromText } from '@/lib/avatar/llm-driver'
+import { assertBudgetAllowed } from '@/services/cost-budget'
 import type { AvatarState } from '@/lib/avatar/types'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -22,6 +23,12 @@ export async function POST(req: Request) {
   try {
     const { text, current } = await req.json() as { text: string; current?: AvatarState }
     if (!text || typeof text !== 'string') return apiError('text required', { status: 400, code: 'missing_field' })
+
+    // P1-1 — cost hard cap before spending tokens.
+    const budget = await assertBudgetAllowed(supabase, user.id)
+    if (budget.blocked) {
+      return apiError(budget.reason ?? '成本已触顶', { status: 402, code: 'budget_exceeded' })
+    }
 
     const userMessage = current
       ? `当前状态：mood=${current.mood}, expression=${current.expression}, action=${current.action}\n\n用户输入：${text}\n\n请输出新状态 JSON。`

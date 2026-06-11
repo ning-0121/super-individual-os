@@ -14,9 +14,9 @@ export interface ToolResult {
   tool: string
   action: string
   params: Record<string, unknown>
-  status: 'success' | 'error'
+  status: 'success' | 'error' | 'pending_approval'
   result?: Record<string, unknown>          // present on success
-  error?: string                            // present on error
+  error?: string                            // present on error / pending_approval note
   duration_ms: number
   executed_at: string
 }

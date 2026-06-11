@@ -16,10 +16,16 @@ function getKey(): Buffer {
     cachedKey = Buffer.from(k, 'hex')
     return cachedKey
   }
-  // Dev fallback — derived from a stable string. NOT secure for prod.
+  // P1-2 — FAIL FAST in production. A missing/short key previously fell back
+  // to a deterministic dev key (false security). Refuse to operate instead.
   if (process.env.NODE_ENV === 'production') {
-    console.warn('[crypto] ENCRYPTION_KEY missing or invalid in production — secrets will use insecure fallback key. Set ENCRYPTION_KEY=$(openssl rand -hex 32)')
+    throw new Error(
+      '[crypto] ENCRYPTION_KEY is required in production and must be 64 hex chars. ' +
+      'Generate with: openssl rand -hex 32',
+    )
   }
+  // Dev only — derived from a stable string. NOT secure; warn loudly.
+  console.warn('[crypto] ENCRYPTION_KEY missing/invalid — using INSECURE dev fallback key (dev only).')
   cachedKey = crypto.scryptSync('super-individual-os-dev-fallback', 'salt-v1', 32)
   return cachedKey
 }

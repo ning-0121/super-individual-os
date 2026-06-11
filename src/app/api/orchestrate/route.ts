@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
 import { buildOrchestratorPrompt, parseOrchestratorOutput } from '@/lib/ai/orchestrator'
+import { assertBudgetAllowed } from '@/services/cost-budget'
+import { audit } from '@/lib/audit'
 import type { ExecutionUnit } from '@/types'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -9,6 +11,16 @@ export async function POST(req: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return new Response('Unauthorized', { status: 401 })
+
+  // P1-1 — cost hard cap before spending tokens.
+  const budget = await assertBudgetAllowed(supabase, user.id)
+  if (budget.blocked) {
+    await audit(supabase, user.id, 'tool_call.executed', {
+      resource_type: 'orchestrate',
+      metadata: { rejected: 'budget_exceeded', reason: budget.reason, month_usd: budget.status.month_usd },
+    })
+    return Response.json({ error: budget.reason ?? '成本已触顶', code: 'budget_exceeded' }, { status: 402 })
+  }
 
   const { projectId, goal, context = '' } = await req.json() as {
     projectId: string

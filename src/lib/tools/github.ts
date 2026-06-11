@@ -24,8 +24,14 @@ async function gh<T = unknown>(token: string, method: string, path: string, body
     body: body ? JSON.stringify(body) : undefined,
   })
   if (!res.ok) {
-    const err = await res.text()
-    throw new Error(`GitHub ${method} ${path} → ${res.status}: ${err.slice(0, 300)}`)
+    // P1-3 — do NOT echo the upstream response body (may reflect creds and
+    // re-enters model context + tool_runs). Status + short reason only.
+    const reason = res.status === 401 ? 'bad credentials'
+      : res.status === 403 ? 'forbidden / rate-limited'
+      : res.status === 404 ? 'not found'
+      : res.status === 422 ? 'unprocessable (check params)'
+      : 'request failed'
+    throw new Error(`GitHub ${method} ${path} → ${res.status} (${reason})`)
   }
   if (res.status === 204) return null as T
   return res.json() as Promise<T>

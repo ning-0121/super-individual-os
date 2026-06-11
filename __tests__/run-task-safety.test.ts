@@ -213,6 +213,35 @@ describe('run-task tenancy (app-layer user_id scoping)', () => {
 // 3. Failure rollback — a thrown agent loop leaves task_run = failed,
 //    never stranded as 'running'
 // ─────────────────────────────────────────────────
+describe('run-task approval pause (P0-1)', () => {
+  it('pending_approval from the agent loop → task_run blocked_approval, not executed/failed', async () => {
+    runAgentLoopMock.mockResolvedValue({
+      final_output: '', summary: 'paused', reasoning_summary: '', risks: [], next_steps: [],
+      tool_calls: [], intermediate_steps: [], total_steps: 1,
+      pending_approval: true,
+      pending_approvals: [{ approval_id: 'appr1', capability_action: 'github.pr.create', tool: 'github', action: 'createPullRequest', risk_level: 2, required_approvers: ['engineering_manager', 'qa_manager'], reason: 'risk L2' }],
+    })
+    const { client, rec } = makeClient({
+      owner: 'u1', taskRow: baseTask, agentRow: baseAgent, activeRuns: [], budgetRows: [],
+    })
+
+    const outcome = await executeTaskRun({ supabase: client, userId: 'u1', taskId: 't1' })
+
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok && 'blocked_approval' in outcome) {
+      expect(outcome.blocked_approval).toBe(true)
+      expect(outcome.pending_approvals[0].capability_action).toBe('github.pr.create')
+    } else {
+      throw new Error('expected blocked_approval outcome')
+    }
+    // task_run moved to blocked_approval (not completed/failed)
+    const blocked = rec.updates.find(u => u.table === 'task_runs' && u.payload.run_status === 'blocked_approval')
+    expect(blocked).toBeTruthy()
+    // task marked blocked_approval
+    expect(rec.updates.some(u => u.table === 'tasks' && u.payload.workflow_status === 'blocked_approval')).toBe(true)
+  })
+})
+
 describe('run-task failure rollback', () => {
   it('marks task_run failed (not left running) when the agent loop throws', async () => {
     runAgentLoopMock.mockRejectedValue(new Error('gateway exploded'))

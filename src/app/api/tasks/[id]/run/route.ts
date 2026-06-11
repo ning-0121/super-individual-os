@@ -128,6 +128,16 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     }
   }
 
+  if ('blocked_approval' in outcome) {
+    return Response.json({
+      ok: false,
+      dispatch: 'pending_approval',
+      task_run_id: outcome.task_run_id,
+      pending_approvals: outcome.pending_approvals,
+      message: '高风险工具调用已暂停，等待审批。请到 Approvals 处理。',
+    }, { status: 202 })
+  }
+
   if ('runtime_error' in outcome) {
     return Response.json({
       ok: false, task_run_id: outcome.task_run_id, error: outcome.runtime_error,

@@ -3,7 +3,12 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ExecutionUnit, Task } from '@/types'
 import type { ToolCall, ToolResult } from '@/lib/tools/types'
 import { MAX_TOOL_CALLS_PER_RUN } from '@/lib/tools/types'
-import { describeTool, executeToolCall } from '@/lib/tools/router'
+import { describeTool } from '@/lib/tools/router'
+import { executeAutonomousToolCall } from '@/lib/tools/tool-autonomy'
+import { resolveCapabilityAction } from '@/lib/tools/action-map'
+import { createApprovalRequest } from '@/services/managers'
+import { sanitizeToolOutput, sanitizeErrorMessage } from '@/lib/ai/sanitize'
+import type { ManagerRole } from '@/types'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -21,6 +26,16 @@ export interface IntermediateStep {
   duration_ms: number
 }
 
+export interface PendingApproval {
+  approval_id: string | null
+  capability_action: string
+  tool: string
+  action: string
+  risk_level: number
+  required_approvers: string[]
+  reason: string
+}
+
 export interface AgentLoopResult {
   final_output: string
   summary: string
@@ -30,6 +45,9 @@ export interface AgentLoopResult {
   tool_calls: ToolResult[]              // flattened from all steps
   intermediate_steps: IntermediateStep[]
   total_steps: number
+  // V3.8 — set when a tool call hit the approval gate; the loop is paused.
+  pending_approval?: boolean
+  pending_approvals?: PendingApproval[]
 }
 
 export interface AgentEvaluation {
@@ -132,11 +150,13 @@ function buildToolResultsMessage(results: ToolResult[]): string {
   const lines = ['## 上一步工具执行结果\n']
   for (const r of results) {
     if (r.status === 'success') {
-      const summary = JSON.stringify(r.result ?? {}).slice(0, 600)
       lines.push(`✓ \`${r.tool}.${r.action}\` 成功（${r.duration_ms}ms）`)
-      lines.push(`  返回：${summary}`)
+      // Tool output is UNTRUSTED — fence + redact before it re-enters context.
+      lines.push(sanitizeToolOutput(r.result ?? {}))
+    } else if (r.status === 'pending_approval') {
+      lines.push(`⏸ \`${r.tool}.${r.action}\` 需要审批，已暂停，等待人工放行。`)
     } else {
-      lines.push(`✗ \`${r.tool}.${r.action}\` 失败：${r.error}`)
+      lines.push(`✗ \`${r.tool}.${r.action}\` 失败：${sanitizeErrorMessage(r.error ?? '')}`)
     }
   }
   lines.push('\n请基于以上结果决定下一步：继续调工具，或进入最终步骤输出完整交付物。')
@@ -193,11 +213,15 @@ export async function runAgentLoop(params: {
   supabase: SupabaseClient
   availableTools?: string[]
   maxSteps?: number
+  taskRunId?: string | null          // V3.8 — links tool_runs + approval_requests
+  projectId?: string | null
 }): Promise<AgentLoopResult> {
   const {
     agent, task, projectContext = null, userId, supabase,
     availableTools = [], maxSteps = DEFAULT_MAX_STEPS,
+    taskRunId = null, projectId = null,
   } = params
+  const pendingApprovals: PendingApproval[] = []
 
   const baseSystem = agent.system_prompt && agent.system_prompt.trim().length > 0
     ? agent.system_prompt
@@ -231,18 +255,20 @@ export async function runAgentLoop(params: {
 
     const parsed = parseAgentOutput(rawText)
 
-    // Execute declared tool calls
+    // Execute declared tool calls — THROUGH the unified governance gate.
     const toolResults: ToolResult[] = []
     const declared = parsed.tool_calls.slice(0, MAX_TOOL_CALLS_PER_RUN)
     const allowed = (agent.tools_allowed ?? []) as string[]
+    let hitApprovalGate = false
 
     for (const call of declared) {
+      const at = new Date().toISOString()
       if (!allowed.includes(call.tool)) {
         toolResults.push({
           tool: call.tool, action: call.action, params: call.params,
           status: 'error',
           error: `Agent ${agent.name} 未被授权使用工具 ${call.tool}`,
-          duration_ms: 0, executed_at: new Date().toISOString(),
+          duration_ms: 0, executed_at: at,
         })
         continue
       }
@@ -251,13 +277,89 @@ export async function runAgentLoop(params: {
           tool: call.tool, action: call.action, params: call.params,
           status: 'error',
           error: `工具 ${call.tool} 未连接（请到 /tools 配置）`,
-          duration_ms: 0, executed_at: new Date().toISOString(),
+          duration_ms: 0, executed_at: at,
         })
         continue
       }
-      toolResults.push(await executeToolCall(call, userId, supabase))
+
+      // P0-1/P0-2 — single execution entrypoint. Risk is classified here;
+      // L0/L1 auto-execute, L2+ are NOT executed: a tool_run(pending_approval)
+      // is recorded and the loop pauses for human approval.
+      const capabilityAction = resolveCapabilityAction(call.tool, call.action)
+      const gated = await executeAutonomousToolCall(supabase, userId, {
+        capability_action: capabilityAction,
+        raw_tool: call.tool,
+        raw_action: call.action,
+        params: call.params,
+        task_run_id: taskRunId ?? undefined,
+        project_id: projectId ?? undefined,
+      })
+
+      if (gated.status === 'pending_approval') {
+        // Create a human-facing approval_request so it lands in the Approval Inbox.
+        const approval = await createApprovalRequest(supabase, {
+          userId,
+          projectId: (projectId ?? '') as string,
+          taskId: task.id,
+          taskRunId: taskRunId ?? null,
+          actionType: `tool.${capabilityAction}`,
+          actionPayload: { tool: call.tool, action: call.action, params: call.params },
+          riskLevel: gated.risk_level,
+          requiredApprovers: gated.required_approvers as ManagerRole[],
+          classificationReason: gated.block_reason ?? `Requires approval (risk L${gated.risk_level})`,
+          expiresInHours: 72,
+        }).catch(() => null)
+
+        pendingApprovals.push({
+          approval_id: approval?.id ?? null,
+          capability_action: capabilityAction,
+          tool: call.tool, action: call.action,
+          risk_level: gated.risk_level,
+          required_approvers: gated.required_approvers as string[],
+          reason: gated.block_reason ?? `risk L${gated.risk_level}`,
+        })
+        toolResults.push({
+          tool: call.tool, action: call.action, params: call.params,
+          status: 'pending_approval',
+          error: `需要审批（风险 L${gated.risk_level}）— 已创建审批请求，暂停执行`,
+          duration_ms: 0, executed_at: at,
+        })
+        hitApprovalGate = true
+        break   // pause the loop — do not run further tool calls this run
+      }
+
+      toolResults.push({
+        tool: call.tool, action: call.action, params: call.params,
+        status: gated.status === 'success' ? 'success' : 'error',
+        result: (gated.result ?? {}) as Record<string, unknown>,
+        error: gated.error ? sanitizeErrorMessage(gated.error) : undefined,
+        duration_ms: 0, executed_at: at,
+      })
     }
     allToolCalls.push(...toolResults)
+
+    // If we hit the approval gate, stop the agent here — it's blocked on a human.
+    if (hitApprovalGate) {
+      steps.push({
+        step: stepNum,
+        thinking: parsed.reasoning_summary || '(等待审批)',
+        tool_calls: toolResults,
+        output_preview: '⏸ 等待人工审批后继续',
+        is_final: true,
+        duration_ms: Date.now() - stepStart,
+      })
+      return {
+        final_output: '',
+        summary: '已暂停：高风险工具调用等待审批',
+        reasoning_summary: parsed.reasoning_summary || '',
+        risks: [], next_steps: [],
+        tool_calls: allToolCalls,
+        intermediate_steps: steps,
+        total_steps: steps.length,
+        pending_approval: true,
+        pending_approvals: pendingApprovals,
+      }
+    }
 
     // Decide if this is the final step:
     // - No tool calls were declared (and execution had nothing to run), or
