@@ -58,7 +58,11 @@ alter table execution_logs    enable row level security;
 alter table outcome_logs      enable row level security;
 alter table learning_patterns enable row level security;
 
+DROP POLICY IF EXISTS "own decision_logs" ON decision_logs;
 create policy "own decision_logs"     on decision_logs     for all using (auth.uid() = user_id);
+DROP POLICY IF EXISTS "own execution_logs" ON execution_logs;
 create policy "own execution_logs"    on execution_logs    for all using (auth.uid() = user_id);
+DROP POLICY IF EXISTS "own outcome_logs" ON outcome_logs;
 create policy "own outcome_logs"      on outcome_logs      for all using (auth.uid() = user_id);
+DROP POLICY IF EXISTS "own learning_patterns" ON learning_patterns;
 create policy "own learning_patterns" on learning_patterns for all using (auth.uid() = user_id);

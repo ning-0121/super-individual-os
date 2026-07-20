@@ -20,6 +20,7 @@ alter table tasks
 
 -- RLS
 alter table execution_units enable row level security;
+DROP POLICY IF EXISTS "own execution_units" ON execution_units;
 create policy "own execution_units" on execution_units for all using (auth.uid() = user_id);
 
 -- ─────────────────────────────────────────

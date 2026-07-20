@@ -101,12 +101,18 @@ alter table conversations enable row level security;
 alter table messages enable row level security;
 alter table memories enable row level security;
 
+DROP POLICY IF EXISTS "own profile" ON user_profiles;
 create policy "own profile" on user_profiles for all using (auth.uid() = id);
+DROP POLICY IF EXISTS "own projects" ON projects;
 create policy "own projects" on projects for all using (auth.uid() = user_id);
+DROP POLICY IF EXISTS "own tasks" ON tasks;
 create policy "own tasks" on tasks for all using (auth.uid() = user_id);
+DROP POLICY IF EXISTS "own conversations" ON conversations;
 create policy "own conversations" on conversations for all using (auth.uid() = user_id);
+DROP POLICY IF EXISTS "own messages" ON messages;
 create policy "own messages" on messages for all
   using (conversation_id in (select id from conversations where user_id = auth.uid()));
+DROP POLICY IF EXISTS "own memories" ON memories;
 create policy "own memories" on memories for all using (auth.uid() = user_id);
 
 -- ─────────────────────────────────────────
