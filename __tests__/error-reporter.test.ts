@@ -47,7 +47,7 @@ describe('crypto.assertProductionSafeKey', () => {
 
   it('does not throw with invalid key in non-production env', async () => {
     process.env.ENCRYPTION_KEY = 'short'
-    process.env.NODE_ENV = 'test'
+    vi.stubEnv('NODE_ENV', 'test')
     const { assertProductionSafeKey } = await import('@/lib/crypto')
     expect(() => assertProductionSafeKey()).not.toThrow()
   })

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   summarize, breakdownByModel, breakdownByStage, mostExpensiveModel,
-  inWindow, startOfToday, startOfThisMonth, startOfThisWeekISO,
+  inWindow, startOfThisMonth, startOfThisWeekISO,
   type ModelRunRow,
 } from '@/lib/cost/aggregate'
 import { evaluateGuardrails, DEFAULT_GUARDRAILS } from '@/lib/cost/guardrails'
@@ -156,19 +156,20 @@ describe('mostExpensiveModel', () => {
 // inWindow + start helpers
 // ─────────────────────────────────────────────────
 describe('inWindow + start-of-* helpers', () => {
-  it('inWindow keeps rows >= start', () => {
-    const fixed = new Date('2026-05-12T10:00:00Z')
-    const tStart = startOfToday(fixed)
+  it('inWindow keeps rows >= start and drops earlier ones', () => {
+    // inWindow is a pure ISO-string comparison — TZ-independent.
+    // Use an explicit boundary so the assertion never depends on machine TZ.
+    const start = '2026-05-12T00:00:00Z'
     const out = inWindow(
       [
-        row({ created_at: '2026-05-12T00:30:00Z' }),
-        row({ created_at: '2026-05-11T23:30:00Z' }),
+        row({ created_at: '2026-05-12T00:30:00Z' }), // after  start → kept
+        row({ created_at: '2026-05-12T00:00:00Z' }), // == start     → kept (>=)
+        row({ created_at: '2026-05-11T23:30:00Z' }), // before start → dropped
       ],
-      tStart,
+      start,
     )
-    // The "today start" depends on local TZ; just assert it's not blowing up
-    // and that the row created earliest is filtered out when start > it.
-    expect(out.length).toBeGreaterThanOrEqual(1)
+    expect(out.length).toBe(2)
+    expect(out.every(r => r.created_at >= start)).toBe(true)
   })
 
   it('startOfThisMonth returns day=1 00:00 of same month', () => {

@@ -1,10 +1,10 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 
 // crypto.ts caches the key at module scope, so each scenario re-imports fresh.
-const ORIG = { NODE_ENV: process.env.NODE_ENV, KEY: process.env.ENCRYPTION_KEY }
+const ORIG = { KEY: process.env.ENCRYPTION_KEY }
 
 afterEach(() => {
-  process.env.NODE_ENV = ORIG.NODE_ENV
+  vi.unstubAllEnvs()
   if (ORIG.KEY === undefined) delete process.env.ENCRYPTION_KEY
   else process.env.ENCRYPTION_KEY = ORIG.KEY
   vi.resetModules()
@@ -13,7 +13,7 @@ afterEach(() => {
 describe('ENCRYPTION_KEY fail-fast (P1-2)', () => {
   it('throws in production when ENCRYPTION_KEY is missing', async () => {
     vi.resetModules()
-    process.env.NODE_ENV = 'production'
+    vi.stubEnv('NODE_ENV', 'production')
     delete process.env.ENCRYPTION_KEY
     const { encryptSecretFields } = await import('@/lib/crypto')
     expect(() => encryptSecretFields({ access_token: 'x' })).toThrow(/ENCRYPTION_KEY is required/)
@@ -21,7 +21,7 @@ describe('ENCRYPTION_KEY fail-fast (P1-2)', () => {
 
   it('throws in production when ENCRYPTION_KEY is too short', async () => {
     vi.resetModules()
-    process.env.NODE_ENV = 'production'
+    vi.stubEnv('NODE_ENV', 'production')
     process.env.ENCRYPTION_KEY = 'deadbeef' // not 64 hex chars
     const { encryptSecretFields } = await import('@/lib/crypto')
     expect(() => encryptSecretFields({ access_token: 'x' })).toThrow(/ENCRYPTION_KEY is required/)
@@ -29,7 +29,7 @@ describe('ENCRYPTION_KEY fail-fast (P1-2)', () => {
 
   it('works in production with a valid 64-hex key', async () => {
     vi.resetModules()
-    process.env.NODE_ENV = 'production'
+    vi.stubEnv('NODE_ENV', 'production')
     process.env.ENCRYPTION_KEY = 'a'.repeat(64)
     const { encryptSecretFields, decryptSecretFields } = await import('@/lib/crypto')
     const enc = encryptSecretFields({ access_token: 'ghp_secret', name: 'plain' })
@@ -41,7 +41,7 @@ describe('ENCRYPTION_KEY fail-fast (P1-2)', () => {
 
   it('dev mode falls back (warns) without throwing', async () => {
     vi.resetModules()
-    process.env.NODE_ENV = 'development'
+    vi.stubEnv('NODE_ENV', 'development')
     delete process.env.ENCRYPTION_KEY
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { encryptSecretFields } = await import('@/lib/crypto')

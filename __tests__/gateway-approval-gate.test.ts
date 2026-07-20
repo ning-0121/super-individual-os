@@ -7,7 +7,7 @@ const h = vi.hoisted(() => {
   const createMock = vi.fn(async () => ({
     content: [{ type: 'text', text: responseQueue.shift() ?? '{"tool_calls":[],"output":"fallback"}' }],
   }))
-  const rawExecMock = vi.fn(async () => ({
+  const rawExecMock = vi.fn(async (..._a: unknown[]) => ({
     tool: 'github', action: 'listRepos', params: {},
     status: 'success' as const, result: { repos: ['o/r'] },
     duration_ms: 1, executed_at: '2026-06-01T00:00:00Z',

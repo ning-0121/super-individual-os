@@ -17,9 +17,9 @@ describe('isHardCapEnabled', () => {
     expect(isHardCapEnabled()).toBe(true)
   })
   it('disabled only when exactly "0"', () => {
-    expect(isHardCapEnabled({ COST_HARD_CAP: '0' } as NodeJS.ProcessEnv)).toBe(false)
-    expect(isHardCapEnabled({ COST_HARD_CAP: '1' } as NodeJS.ProcessEnv)).toBe(true)
-    expect(isHardCapEnabled({ COST_HARD_CAP: 'true' } as NodeJS.ProcessEnv)).toBe(true)
+    expect(isHardCapEnabled({ COST_HARD_CAP: '0' } as unknown as NodeJS.ProcessEnv)).toBe(false)
+    expect(isHardCapEnabled({ COST_HARD_CAP: '1' } as unknown as NodeJS.ProcessEnv)).toBe(true)
+    expect(isHardCapEnabled({ COST_HARD_CAP: 'true' } as unknown as NodeJS.ProcessEnv)).toBe(true)
   })
 })
 
