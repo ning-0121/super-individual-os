@@ -129,10 +129,17 @@ ALTER TABLE task_reviews      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE agent_messages    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tool_integrations ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "own agent_profiles"    ON agent_profiles    FOR ALL USING (
+-- Postgres does not support IF NOT EXISTS on CREATE POLICY — use DROP+CREATE
+-- to stay idempotent (matches the convention in every other migration).
+DROP POLICY IF EXISTS "own agent_profiles" ON agent_profiles;
+CREATE POLICY "own agent_profiles"    ON agent_profiles    FOR ALL USING (
   EXISTS (SELECT 1 FROM execution_units eu WHERE eu.id = execution_unit_id AND eu.user_id = auth.uid())
 );
-CREATE POLICY IF NOT EXISTS "own task_runs"         ON task_runs         FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY IF NOT EXISTS "own task_reviews"      ON task_reviews      FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY IF NOT EXISTS "own agent_messages"    ON agent_messages    FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY IF NOT EXISTS "own tool_integrations" ON tool_integrations FOR ALL USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "own task_runs" ON task_runs;
+CREATE POLICY "own task_runs"         ON task_runs         FOR ALL USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "own task_reviews" ON task_reviews;
+CREATE POLICY "own task_reviews"      ON task_reviews      FOR ALL USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "own agent_messages" ON agent_messages;
+CREATE POLICY "own agent_messages"    ON agent_messages    FOR ALL USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "own tool_integrations" ON tool_integrations;
+CREATE POLICY "own tool_integrations" ON tool_integrations FOR ALL USING (auth.uid() = user_id);
